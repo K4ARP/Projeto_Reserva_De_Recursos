@@ -107,3 +107,10 @@ CREATE TABLE AcessoLogin (
     FOREIGN KEY (idUsuario) REFERENCES Usuario(id)
 );
 GO
+
+USE BD26408;
+GO
+
+ALTER TABLE Usuario
+ALTER COLUMN senha VARCHAR(255) NOT NULL;
+GO
