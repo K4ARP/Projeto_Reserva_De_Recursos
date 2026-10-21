@@ -95,3 +95,15 @@ BEGIN
     );
 END;
 GO
+
+USE BD26408;
+GO
+
+CREATE TABLE AcessoLogin (
+    idAcesso INT IDENTITY(1,1) PRIMARY KEY,
+    idUsuario INT NULL,
+    dataHora DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
+    sucesso BIT NOT NULL,
+    FOREIGN KEY (idUsuario) REFERENCES Usuario(id)
+);
+GO
