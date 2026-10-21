@@ -1,0 +1,26 @@
+{
+  "name": "reserva-laboratorios-salas",
+  "version": "1.0.0",
+  "description": "API para reserva de laboratorios e salas de aula",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.8",
+    "express": "^5.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "mssql": "^12.7.10"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

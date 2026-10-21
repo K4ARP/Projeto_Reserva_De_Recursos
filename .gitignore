@@ -1,0 +1,26 @@
+# Dependencias do Node.js
+**/node_modules/
+
+# Arquivos de ambiente e senhas
+**/.env
+**/.env.*
+!**/.env.example
+
+# Logs
+**/*.log
+**/npm-debug.log*
+
+# Arquivos gerados pelo Next.js
+**/.next/
+**/out/
+
+# Builds
+**/dist/
+**/build/
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# Configuracoes locais do VS Code
+.vscode/

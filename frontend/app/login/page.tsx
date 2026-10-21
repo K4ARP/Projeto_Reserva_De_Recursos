@@ -1,23 +1,78 @@
+
 'use client';
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export default function Login() {
+  const router = useRouter();
+
   const [formData, setFormData] = useState({
     login: '',
     senha: '',
   });
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
+  const [mensagem, setMensagem] = useState('');
+  const [carregando, setCarregando] = useState(false);
 
-  const handleSubmit = async (e) => {
+  function handleChange(e) {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value,
+    });
+
+    setMensagem('');
+  }
+
+  async function handleSubmit(e) {
     e.preventDefault();
-    console.log('Dados do Login:', formData);
-    alert('Login realizado com sucesso!');
-  };
+    setMensagem('');
+    setCarregando(true);
+
+    try {
+      const resposta = await fetch('http://localhost:8080/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          login: formData.login,
+          senha: formData.senha,
+        }),
+      });
+
+      const dados = await resposta.json();
+
+      if (!resposta.ok) {
+        setMensagem(dados.mensagem || 'Login ou senha inválidos.');
+        return;
+      }
+
+      if (!dados.token) {
+        setMensagem('O servidor não retornou o token de autenticação.');
+        return;
+      }
+
+      // Salva o token e os dados básicos do usuário.
+      localStorage.setItem('token', dados.token);
+
+      if (dados.usuario) {
+        localStorage.setItem('usuario', JSON.stringify(dados.usuario));
+      }
+
+      // Vai para a página principal: frontend/app/page.js
+      window.location.replace('/principal');
+    } catch (erro) {
+      console.error('Erro ao realizar login:', erro);
+
+      setMensagem(
+        'Não foi possível conectar ao servidor. Verifique se a API está funcionando.'
+      );
+    } finally {
+      setCarregando(false);
+    }
+  }
 
   return (
     <div
@@ -27,26 +82,24 @@ export default function Login() {
         justifyContent: 'center',
         alignItems: 'center',
         padding: '20px',
-        paddingTop: '60px', // Posiciona mais para baixo no centro
+        paddingTop: '60px',
         boxSizing: 'border-box',
         fontFamily: 'sans-serif',
-        backgroundColor: '#000000', // Fundo da página preto
-        color: '#ffffff', // Texto padrão em branco
+        backgroundColor: '#000000',
+        color: '#ffffff',
       }}
     >
-      {/* Container / Quadradinho com fundo preto e borda fina branca */}
       <div
         style={{
           width: '100%',
           maxWidth: '480px',
           padding: '40px 30px',
-          border: '1px solid #ffffff', // Espessura fina branca
+          border: '1px solid #ffffff',
           borderRadius: '8px',
-          backgroundColor: '#000000', // Cor de fundo preta (igual ao fundo da página)
+          backgroundColor: '#000000',
           boxSizing: 'border-box',
         }}
       >
-        {/* Título bem grande */}
         <h1
           style={{
             fontSize: '28px',
@@ -58,22 +111,68 @@ export default function Login() {
           }}
         >
           Reserva de Recursos
-          <span style={{ display: 'block', fontSize: '20px', fontWeight: 'normal', marginTop: '6px', color: '#dddddd' }}>
+          <span
+            style={{
+              display: 'block',
+              fontSize: '20px',
+              fontWeight: 'normal',
+              marginTop: '6px',
+              color: '#dddddd',
+            }}
+          >
             (Salas e Laboratórios)
           </span>
         </h1>
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+        {mensagem && (
+          <p
+            role="alert"
+            aria-live="polite"
+            style={{
+              padding: '12px',
+              margin: '0 0 20px',
+              borderRadius: '4px',
+              border: '1px solid #7f2929',
+              backgroundColor: '#2a1111',
+              color: '#fca5a5',
+              fontSize: '14px',
+              lineHeight: '1.5',
+              overflowWrap: 'anywhere',
+            }}
+          >
+            {mensagem}
+          </p>
+        )}
+
+        <form
+          onSubmit={handleSubmit}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '22px',
+          }}
+        >
           <div>
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#ffffff' }}>
+            <label
+              htmlFor="login"
+              style={{
+                display: 'block',
+                marginBottom: '8px',
+                fontWeight: '500',
+                color: '#ffffff',
+              }}
+            >
               Login / Usuário:
             </label>
+
             <input
+              id="login"
               type="text"
               name="login"
               value={formData.login}
               onChange={handleChange}
               placeholder="Digite seu login"
+              autoComplete="username"
               required
               style={{
                 width: '100%',
@@ -88,15 +187,26 @@ export default function Login() {
           </div>
 
           <div>
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#ffffff' }}>
+            <label
+              htmlFor="senha"
+              style={{
+                display: 'block',
+                marginBottom: '8px',
+                fontWeight: '500',
+                color: '#ffffff',
+              }}
+            >
               Senha:
             </label>
+
             <input
+              id="senha"
               type="password"
               name="senha"
               value={formData.senha}
               onChange={handleChange}
               placeholder="Digite sua senha"
+              autoComplete="current-password"
               required
               style={{
                 width: '100%',
@@ -112,42 +222,50 @@ export default function Login() {
 
           <button
             type="submit"
+            disabled={carregando}
             style={{
               padding: '12px 15px',
-              backgroundColor: '#0070f3',
-              color: '#fff',
+              backgroundColor: carregando ? '#444444' : '#0070f3',
+              color: '#ffffff',
               border: 'none',
               borderRadius: '4px',
-              cursor: 'pointer',
+              cursor: carregando ? 'not-allowed' : 'pointer',
               fontSize: '16px',
               fontWeight: 'bold',
               marginTop: '10px',
             }}
           >
-            Entrar
+            {carregando ? 'Entrando...' : 'Entrar'}
           </button>
         </form>
 
         <div style={{ marginTop: '35px', textAlign: 'center' }}>
-          <p style={{ marginBottom: '14px', fontSize: '15px', color: '#cccccc' }}>
+          <p
+            style={{
+              marginBottom: '14px',
+              fontSize: '15px',
+              color: '#cccccc',
+            }}
+          >
             Ainda não possui uma conta?
           </p>
-          <Link href="/cadastro-usuario">
-            <button
-              type="button"
-              style={{
-                padding: '12px 15px',
-                backgroundColor: 'transparent',
-                color: '#0070f3',
-                border: '1px solid #0070f3',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                width: '100%',
-                fontSize: '15px',
-              }}
-            >
-              Criar uma conta
-            </button>
+
+          <Link
+            href="/cadastro-usuario"
+            style={{
+              display: 'block',
+              padding: '12px 15px',
+              backgroundColor: 'transparent',
+              color: '#0070f3',
+              border: '1px solid #0070f3',
+              borderRadius: '4px',
+              width: '100%',
+              fontSize: '15px',
+              textDecoration: 'none',
+              boxSizing: 'border-box',
+            }}
+          >
+            Criar uma conta
           </Link>
         </div>
       </div>
