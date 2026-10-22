@@ -1,153 +1,132 @@
 
-import conectaBD from '../config/dbConexao.js';
-
 import {
     listarRecursos,
     cadastrarRecurso,
-    atualizarAtivoRecurso,
+    atualizarAtivoRecurso
 } from '../models/recursoModel.js';
 
-// Lista salas ou laboratórios
-export async function listar(req, res) {
+// Lista todos os recursos (salas e laboratórios)
+export async function listarTodos(req, res) {
     try {
-        const recursos = await listarRecursos(req.params.tipo);
+        const laboratorios = await listarRecursos('laboratorio');
+        const salas = await listarRecursos('sala');
+
+        const recursos = [
+            ...laboratorios.map((item) => ({
+                ...item,
+                tipo: 'laboratorio'
+            })),
+            ...salas.map((item) => ({
+                ...item,
+                tipo: 'sala'
+            }))
+        ];
+
         return res.status(200).json(recursos);
     } catch (erro) {
         console.error('Erro ao listar recursos:', erro);
 
-        if (erro.message === 'Tipo de recurso inválido.') {
-            return res.status(400).json({ mensagem: erro.message });
-        }
-
         return res.status(500).json({
-            mensagem: 'Erro ao listar recursos.',
+            mensagem: erro.message || 'Erro ao listar recursos.'
         });
     }
 }
 
-// Lista salas e laboratórios juntos
-export async function listarTodos(req, res) {
+// Lista os recursos de um tipo específico
+export async function listar(req, res) {
     try {
-        const bd = await conectaBD();
+        const { tipo } = req.params;
 
-        const salas = await bd.request().query(`
-            SELECT codigo, nome, capacidade, localizacao, ativo,
-                   'Sala' AS tipo
-            FROM dbo.Sala
-        `);
+        const recursos = await listarRecursos(tipo);
 
-        const laboratorios = await bd.request().query(`
-            SELECT codigo, nome, capacidade, localizacao, ativo,
-                   'Laboratorio' AS tipo
-            FROM dbo.Laboratorio
-        `);
-
-        return res.status(200).json([
-            ...salas.recordset,
-            ...laboratorios.recordset,
-        ]);
+        return res.status(200).json(
+            recursos.map((item) => ({
+                ...item,
+                tipo: tipo.toLowerCase()
+            }))
+        );
     } catch (erro) {
-        console.error('Erro ao listar todos os recursos:', erro);
+        console.error('Erro ao listar recursos:', erro);
 
-        return res.status(500).json({
-            mensagem: 'Erro ao consultar os recursos.',
+        return res.status(400).json({
+            mensagem: erro.message || 'Erro ao listar recursos.'
         });
     }
 }
 
-// Cadastra sala ou laboratório
+// Cadastra uma sala ou laboratório
 export async function cadastrar(req, res) {
     try {
+        const { tipo } = req.params;
         const { codigo, nome, capacidade, localizacao, ativo } = req.body;
 
         if (
             codigo === undefined ||
-            codigo === '' ||
-            !Number.isInteger(Number(codigo)) ||
-            Number(codigo) <= 0
+            !nome?.trim() ||
+            capacidade === undefined ||
+            !localizacao?.trim()
         ) {
             return res.status(400).json({
-                mensagem: 'Informe um código numérico positivo.',
-            });
-        }
-
-        if (typeof nome !== 'string' || !nome.trim()) {
-            return res.status(400).json({
-                mensagem: 'Informe o nome do recurso.',
+                mensagem: 'Preencha código, nome, capacidade e localização.'
             });
         }
 
         if (
-            capacidade === undefined ||
-            capacidade === '' ||
+            !Number.isInteger(Number(codigo)) ||
+            Number(codigo) <= 0 ||
             !Number.isInteger(Number(capacidade)) ||
             Number(capacidade) <= 0
         ) {
             return res.status(400).json({
-                mensagem: 'A capacidade deve ser um número inteiro positivo.',
+                mensagem: 'Código e capacidade devem ser números inteiros positivos.'
             });
         }
 
-        if (typeof localizacao !== 'string' || !localizacao.trim()) {
-            return res.status(400).json({
-                mensagem: 'Informe a localização do recurso.',
-            });
-        }
-
-        if (ativo !== undefined && typeof ativo !== 'boolean') {
-            return res.status(400).json({
-                mensagem: 'O campo ativo deve ser verdadeiro ou falso.',
-            });
-        }
-
-        const recurso = await cadastrarRecurso(req.params.tipo, {
+        const recurso = await cadastrarRecurso(tipo, {
             codigo,
             nome,
             capacidade,
             localizacao,
-            ativo: ativo !== false,
+            ativo
         });
 
         return res.status(201).json({
             mensagem: 'Recurso cadastrado com sucesso!',
-            recurso,
+            recurso: {
+                ...recurso,
+                tipo: tipo.toLowerCase()
+            }
         });
     } catch (erro) {
         console.error('Erro ao cadastrar recurso:', erro);
 
-        if (erro.message === 'Tipo de recurso inválido.') {
-            return res.status(400).json({ mensagem: erro.message });
-        }
-
-        if (erro.number === 2627 || erro.number === 2601) {
-            return res.status(409).json({
-                mensagem: 'Já existe um recurso com esse código.',
-            });
-        }
-
-        return res.status(500).json({
-            mensagem: 'Erro ao cadastrar recurso. Verifique o banco de dados.',
+        return res.status(400).json({
+            mensagem: erro.message || 'Erro ao cadastrar recurso.'
         });
     }
 }
 
-// Ativa ou desativa sala ou laboratório
+// Ativa ou desativa uma sala ou laboratório
 export async function alterarAtivo(req, res) {
     try {
         const { tipo, codigo } = req.params;
         const { ativo } = req.body;
 
-        if (ativo !== true && ativo !== false) {
+        if (typeof ativo !== 'boolean') {
             return res.status(400).json({
-                mensagem: 'Informe se o recurso deve ficar ativo ou inativo.',
+                mensagem: 'Informe ativo como true ou false.'
             });
         }
 
-        const recurso = await atualizarAtivoRecurso(tipo, codigo, ativo);
+        const recurso = await atualizarAtivoRecurso(
+            tipo,
+            codigo,
+            ativo
+        );
 
         if (!recurso) {
             return res.status(404).json({
-                mensagem: 'Recurso não encontrado.',
+                mensagem: 'Recurso não encontrado.'
             });
         }
 
@@ -155,17 +134,16 @@ export async function alterarAtivo(req, res) {
             mensagem: ativo
                 ? 'Recurso ativado com sucesso!'
                 : 'Recurso desativado com sucesso!',
-            recurso,
+            recurso: {
+                ...recurso,
+                tipo: tipo.toLowerCase()
+            }
         });
     } catch (erro) {
-        console.error('Erro ao alterar situação do recurso:', erro);
+        console.error('Erro ao alterar status do recurso:', erro);
 
-        if (erro.message === 'Tipo de recurso inválido.') {
-            return res.status(400).json({ mensagem: erro.message });
-        }
-
-        return res.status(500).json({
-            mensagem: 'Erro ao alterar a situação do recurso.',
+        return res.status(400).json({
+            mensagem: erro.message || 'Erro ao alterar status do recurso.'
         });
     }
 }

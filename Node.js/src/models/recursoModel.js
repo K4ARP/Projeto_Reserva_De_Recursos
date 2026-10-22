@@ -8,7 +8,7 @@ const tabelas = {
 };
 
 function obterTabela(tipo) {
-    const tabela = tabelas[tipo];
+    const tabela = tabelas[String(tipo).toLowerCase()];
 
     if (!tabela) {
         throw new Error('Tipo de recurso inválido.');
@@ -23,7 +23,12 @@ export async function listarRecursos(tipo) {
     const bd = await conectaBD();
 
     const resultado = await bd.request().query(`
-        SELECT codigo, nome, capacidade, localizacao, ativo
+        SELECT
+            codigo,
+            nome,
+            capacidade,
+            localizacao,
+            ativo
         FROM dbo.${tabela}
         ORDER BY codigo
     `);
@@ -75,7 +80,7 @@ export async function atualizarAtivoRecurso(tipo, codigo, ativo) {
                 INSERTED.capacidade,
                 INSERTED.localizacao,
                 INSERTED.ativo
-            WHERE codigo = @codigo;
+            WHERE codigo = @codigo
         `);
 
     return resultado.recordset[0] || null;

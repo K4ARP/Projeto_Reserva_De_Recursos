@@ -2,10 +2,10 @@
 import { Router } from 'express';
 
 import {
-    listar,
-    listarTodos,
-    cadastrar,
-    alterarAtivo,
+  listar,
+  listarTodos,
+  cadastrar,
+  alterarAtivo,
 } from '../controllers/recursoController.js';
 
 const router = Router();

@@ -1,1028 +1,973 @@
+
 'use client';
 
-import { useState, type ChangeEvent, type FormEvent } from 'react';
-import Link from 'next/link';
+import { useEffect, useState } from 'react';
 
-type Painel = 'inicio' | 'recurso' | 'reserva';
+type Secao = 'inicio' | 'reservar' | 'consultar' | 'recursos';
 
-type FormRecurso = {
-    codigo: string;
-    nome: string;
-    tipo: string;
-    capacidade: string;
-    localizacao: string;
+type Recurso = {
+  codigo: string;
+  nome: string;
+  capacidade: number;
+  localizacao: string;
+  ativo: boolean;
 };
 
-type FormReserva = {
-    tipo: string;
-    recurso: string;
-    data: string;
-    inicio: string;
-    fim: string;
+type Reserva = {
+  idReserva?: number;
+  nomeCompleto?: string;
+  nomeRecurso?: string;
+  tipoRecurso?: string;
+  codigo?: string | number;
+  dataReserva?: string;
+  horarioInicio?: string;
+  horarioFim?: string;
+  status?: string;
 };
 
-const recursoInicial: FormRecurso = {
+const API = 'http://localhost:8080';
+
+export default function Principal() {
+  const [secao, setSecao] = useState<Secao>('inicio');
+  const [tipoRecurso, setTipoRecurso] = useState<'Sala de Aula' | 'Laboratório'>('Sala de Aula');
+
+  const [recursos, setRecursos] = useState<Recurso[]>([]);
+  const [reservas, setReservas] = useState<Reserva[]>([]);
+
+  const [mensagem, setMensagem] = useState('');
+  const [carregando, setCarregando] = useState(false);
+
+  const [formRecurso, setFormRecurso] = useState({
     codigo: '',
     nome: '',
-    tipo: 'Laboratório',
     capacidade: '',
     localizacao: '',
-};
+  });
 
-const reservaInicial: FormReserva = {
-    tipo: 'Sala de Aula',
-    recurso: '',
+  const [formReserva, setFormReserva] = useState({
+    tipo: 'sala',
+    codigo: '',
     data: '',
     inicio: '',
     fim: '',
-};
+  });
 
-const recursos: Record<string, string[]> = {
-    'Sala de Aula': ['Sala 101', 'Sala 102', 'Sala 103'],
-    Laboratório: [
-        'Laboratório de Informática',
-        'Laboratório de Eletrônica',
-        'Laboratório de Química',
-    ],
-};
+  const [filtros, setFiltros] = useState({
+    tipo: '',
+    codigo: '',
+    data: '',
+  });
 
-// Envia um JSON por POST e lança erro se a API não responder com sucesso.
-async function enviarJson(rota: string, corpo: unknown) {
-    const resposta = await fetch(rota, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(corpo),
-    });
+  const tipoApi = tipoRecurso === 'Sala de Aula' ? 'sala' : 'laboratorio';
 
+  function obterToken() {
+    if (typeof window === 'undefined') return '';
+    return localStorage.getItem('token') || '';
+  }
+
+  async function lerResposta(resposta: Response) {
     const texto = await resposta.text();
 
-    let resultado: { mensagem?: string } = {};
-
+    let dados: any = {};
     try {
-        resultado = texto ? JSON.parse(texto) : {};
+      dados = texto ? JSON.parse(texto) : {};
     } catch {
-        resultado = {};
+      dados = { mensagem: texto };
     }
 
     if (!resposta.ok) {
-        throw new Error(
-            resultado.mensagem ||
-            `Não foi possível concluir. Erro HTTP ${resposta.status}.`
-        );
+      throw new Error(
+        dados.mensagem || dados.erro || `Erro HTTP ${resposta.status}`
+      );
     }
-}
 
-function mensagemDeErro(erro: unknown) {
-    return erro instanceof Error
-        ? erro.message
-        : 'Erro inesperado.';
-}
+    return dados;
+  }
 
-export default function Home() {
-    const [painel, setPainel] = useState<Painel>('inicio');
-    const [formRecurso, setFormRecurso] =
-        useState<FormRecurso>(recursoInicial);
-    const [formReserva, setFormReserva] =
-        useState<FormReserva>(reservaInicial);
-    const [carregando, setCarregando] = useState(false);
-    const [confirmada, setConfirmada] = useState(false);
-    const [mensagemReserva, setMensagemReserva] = useState('');
+  function extrairLista(dados: any): any[] {
+    if (Array.isArray(dados)) return dados;
+    if (Array.isArray(dados.recursos)) return dados.recursos;
+    if (Array.isArray(dados.reservas)) return dados.reservas;
+    if (Array.isArray(dados.resultado)) return dados.resultado;
+    if (Array.isArray(dados.dados)) return dados.dados;
+    return [];
+  }
 
-    const handleChangeRecurso = (
-        e: ChangeEvent<HTMLInputElement | HTMLSelectElement>
-    ) => {
-        const { name, value } = e.target;
+  // Carrega salas ou laboratórios do banco.
+  async function carregarRecursos(tipo = tipoApi) {
+    setCarregando(true);
+    setMensagem('');
 
-        setFormRecurso((anterior) => ({
-            ...anterior,
-            [name]: value,
-        }));
-    };
+    try {
+      const resposta = await fetch(`${API}/recursos/${tipo}`);
+      const dados = await lerResposta(resposta);
+      const lista = extrairLista(dados);
 
-    const handleChangeReserva = (
-        e: ChangeEvent<HTMLInputElement | HTMLSelectElement>
-    ) => {
-        const { name, value } = e.target;
+      setRecursos(
+        lista.map((r: any) => ({
+          codigo: String(r.codigo ?? r.codigoRecurso ?? r.id ?? ''),
+          nome: String(r.nome ?? r.nomeRecurso ?? ''),
+          capacidade: Number(r.capacidade ?? 0),
+          localizacao: String(r.localizacao ?? ''),
+          ativo: r.ativo === undefined ? true : Boolean(r.ativo),
+        }))
+      );
+    } catch (erro) {
+      setRecursos([]);
+      setMensagem(
+        erro instanceof Error
+          ? `Não foi possível carregar os recursos: ${erro.message}`
+          : 'Não foi possível carregar os recursos.'
+      );
+    } finally {
+      setCarregando(false);
+    }
+  }
 
-        setFormReserva((anterior) => ({
-            ...anterior,
-            [name]: value,
-            // Ao trocar o tipo, limpa o recurso escolhido
-            ...(name === 'tipo' ? { recurso: '' } : {}),
-        }));
+  // IMPORTANTE: carrega os recursos também ao entrar em Reservar.
+  useEffect(() => {
+    if (secao === 'recursos' || secao === 'reservar') {
+      const tipo = secao === 'reservar'
+        ? formReserva.tipo
+        : tipoApi;
 
-        setMensagemReserva('');
-    };
+      carregarRecursos(tipo);
+    }
+  }, [secao, tipoRecurso, formReserva.tipo]);
 
-    // Volta para a mensagem de boas-vindas e limpa os formulários.
-    const fecharPainel = () => {
-        setPainel('inicio');
-        setFormRecurso(recursoInicial);
-        setFormReserva(reservaInicial);
-        setConfirmada(false);
-        setMensagemReserva('');
-    };
+  async function cadastrarRecurso(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setMensagem('');
 
-    const abrirPainel = (novo: Painel) => {
-        setPainel(novo);
-        setConfirmada(false);
-        setMensagemReserva('');
-    };
+    if (
+      !formRecurso.codigo.trim() ||
+      !formRecurso.nome.trim() ||
+      !formRecurso.capacidade ||
+      !formRecurso.localizacao.trim()
+    ) {
+      setMensagem('Preencha todos os campos do recurso.');
+      return;
+    }
 
-    const sair = () => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('usuario');
-    };
+    try {
+      const resposta = await fetch(`${API}/recursos/${tipoApi}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          codigo: formRecurso.codigo,
+          nome: formRecurso.nome,
+          capacidade: Number(formRecurso.capacidade),
+          localizacao: formRecurso.localizacao,
+          ativo: true,
+        }),
+      });
 
-    const handleSubmitRecurso = async (e: FormEvent<HTMLFormElement>) => {
-        e.preventDefault();
+      const dados = await lerResposta(resposta);
 
-        const codigo = Number(formRecurso.codigo);
-        const capacidade = Number(formRecurso.capacidade);
+      setMensagem(dados.mensagem || 'Recurso cadastrado com sucesso!');
+      setFormRecurso({
+        codigo: '',
+        nome: '',
+        capacidade: '',
+        localizacao: '',
+      });
 
-        if (
-            !Number.isInteger(codigo) ||
-            codigo <= 0 ||
-            !Number.isInteger(capacidade) ||
-            capacidade <= 0
-        ) {
-            alert('Informe um código e uma capacidade válidos.');
-            return;
+      await carregarRecursos(tipoApi);
+    } catch (erro) {
+      setMensagem(
+        erro instanceof Error
+          ? `Erro ao cadastrar recurso: ${erro.message}`
+          : 'Erro ao cadastrar recurso.'
+      );
+    }
+  }
+
+  async function alterarAtivo(recurso: Recurso) {
+    setMensagem('');
+
+    try {
+      const resposta = await fetch(
+        `${API}/recursos/${tipoApi}/${encodeURIComponent(recurso.codigo)}/ativo`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ ativo: !recurso.ativo }),
         }
+      );
 
-        const recurso = {
-            codigo,
-            nome: formRecurso.nome.trim(),
-            capacidade,
-            localizacao: formRecurso.localizacao.trim(),
-        };
+      const dados = await lerResposta(resposta);
+      setMensagem(dados.mensagem || 'Status do recurso atualizado.');
+      await carregarRecursos(tipoApi);
+    } catch (erro) {
+      setMensagem(
+        erro instanceof Error
+          ? `Erro ao alterar recurso: ${erro.message}`
+          : 'Erro ao alterar o recurso.'
+      );
+    }
+  }
 
-        if (!recurso.nome || !recurso.localizacao) {
-            alert('Preencha todos os campos.');
-            return;
+  async function consultarReservas(e?: React.FormEvent<HTMLFormElement>) {
+    e?.preventDefault();
+    setMensagem('');
+
+    try {
+      const parametros = new URLSearchParams();
+
+      if (filtros.tipo) parametros.set('tipo', filtros.tipo);
+      if (filtros.codigo.trim()) parametros.set('codigo', filtros.codigo.trim());
+      if (filtros.data) parametros.set('data', filtros.data);
+
+      const token = obterToken();
+
+      const resposta = await fetch(
+        `${API}/reservas?${parametros.toString()}`,
+        {
+          headers: token
+            ? { Authorization: `Bearer ${token}` }
+            : {},
         }
+      );
 
-        // Cada tipo é salvo na sua tabela correspondente.
-        const rota =
-            formRecurso.tipo === 'Sala de Aula'
-                ? '/api/salas'
-                : '/api/laboratorios';
+      const dados = await lerResposta(resposta);
+      setReservas(extrairLista(dados));
+    } catch (erro) {
+      setReservas([]);
+      setMensagem(
+        erro instanceof Error
+          ? `Erro ao consultar reservas: ${erro.message}`
+          : 'Erro ao consultar reservas.'
+      );
+    }
+  }
 
-        setCarregando(true);
+  async function enviarReserva(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setMensagem('');
 
-        try {
-            await enviarJson(rota, recurso);
+    if (
+      !formReserva.codigo ||
+      !formReserva.data ||
+      !formReserva.inicio ||
+      !formReserva.fim
+    ) {
+      setMensagem('Preencha todos os campos da reserva.');
+      return;
+    }
 
-            alert(`${formRecurso.tipo} cadastrado com sucesso!`);
-            fecharPainel();
-        } catch (erro) {
-            console.error('Erro ao cadastrar recurso:', erro);
+    if (formReserva.inicio >= formReserva.fim) {
+      setMensagem('O horário final deve ser posterior ao inicial.');
+      return;
+    }
 
-            alert(
-                `Não foi possível cadastrar o recurso.\n${mensagemDeErro(erro)}`
-            );
-        } finally {
-            setCarregando(false);
-        }
-    };
+    try {
+      const token = obterToken();
 
-    const handleSubmitReserva = (e: FormEvent<HTMLFormElement>) => {
-        e.preventDefault();
-        setMensagemReserva('');
+      if (!token) {
+        setMensagem('Faça login antes de reservar um recurso.');
+        return;
+      }
 
-        if (formReserva.inicio >= formReserva.fim) {
-            setMensagemReserva(
-                'O horário de término deve ser posterior ao horário de início.'
-            );
-            return;
-        }
+      const corpo = {
+        tipo: formReserva.tipo,
+        codigo: formReserva.codigo,
+        data: formReserva.data,
+        inicio: formReserva.inicio,
+        fim: formReserva.fim,
+      };
 
-        // Nesta primeira versão, a confirmação é apenas visual.
-        // A gravação no banco será integrada posteriormente.
-        setConfirmada(true);
-    };
+      const resposta = await fetch(`${API}/reservas`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(corpo),
+      });
 
-    // Data de hoje no horário local (AAAA-MM-DD), para o mínimo do campo de data
-    const hoje = new Date().toLocaleDateString('sv-SE');
+      const dados = await lerResposta(resposta);
+      setMensagem(dados.mensagem || 'Reserva cadastrada com sucesso!');
 
-    return (
-        <div className="sistema">
-            <header className="cabecalho">
-                <h1>Reserva de Salas e Laboratórios</h1>
-                <span className="usuario-info">Usuário</span>
-            </header>
+      setFormReserva({
+        tipo: 'sala',
+        codigo: '',
+        data: '',
+        inicio: '',
+        fim: '',
+      });
+    } catch (erro) {
+      setMensagem(
+        erro instanceof Error
+          ? `Erro ao reservar: ${erro.message}`
+          : 'Erro ao cadastrar reserva.'
+      );
+    }
+  }
 
-            <div className="estrutura">
-                <aside className="menu-lateral">
-                    <button
-                        type="button"
-                        className={`item-menu botao-menu ${
-                            painel === 'inicio' ? 'ativo' : ''
-                        }`}
-                        onClick={fecharPainel}
-                    >
-                        Início
-                    </button>
+  function abrirSecao(novaSecao: Secao) {
+    setMensagem('');
+    setSecao(novaSecao);
+  }
 
-                    <button
-                        type="button"
-                        className={`item-menu botao-menu ${
-                            painel === 'reserva' ? 'ativo' : ''
-                        }`}
-                        onClick={() => abrirPainel('reserva')}
-                    >
-                        Reservar
-                    </button>
+  return (
+    <main className="pagina">
+      <aside className="menu">
+        <h2>Reserva de Recursos</h2>
 
-                    <Link
-                        href="/consultar-reservas"
-                        className="item-menu"
-                    >
-                        Consultar Reservas
-                    </Link>
+        <button onClick={() => abrirSecao('inicio')}>⌂ Início</button>
+        <button onClick={() => abrirSecao('reservar')}>▣ Reservar</button>
+        <button onClick={() => abrirSecao('consultar')}>▤ Consultar reservas</button>
+        <button onClick={() => abrirSecao('recursos')}>＋ Cadastrar recurso</button>
 
-                    <button
-                        type="button"
-                        className={`item-menu botao-menu ${
-                            painel === 'recurso' ? 'ativo' : ''
-                        }`}
-                        onClick={() => abrirPainel('recurso')}
-                    >
-                        Cadastrar Recurso
-                    </button>
+        <button
+          className="sair"
+          onClick={() => {
+            localStorage.removeItem('token');
+            window.location.href = '/';
+          }}
+        >
+          Sair
+        </button>
+      </aside>
 
-                    <Link
-                        href="/login"
-                        className="item-menu sair"
-                        onClick={sair}
-                    >
-                        Sair
-                    </Link>
-                </aside>
+      <section className="conteudo">
+        <header className="cabecalho">
+          <div>
+            <h1>
+              {secao === 'inicio' && 'Página principal'}
+              {secao === 'reservar' && 'Reservar recurso'}
+              {secao === 'consultar' && 'Consultar reservas'}
+              {secao === 'recursos' && 'Cadastro de recursos'}
+            </h1>
+            <p>Sistema de reserva de salas de aula e laboratórios</p>
+          </div>
+        </header>
 
-                <main
-                    className={`conteudo ${
-                        painel !== 'inicio' ? 'com-form' : ''
-                    }`}
-                >
-                    {painel === 'inicio' && (
-                        <section className="boas-vindas">
-                            <h2>Bem-vindo!</h2>
+        {mensagem && (
+          <div className="mensagem" role="status">
+            {mensagem}
+          </div>
+        )}
 
-                            <p>
-                                Escolha uma opção no menu ao lado
-                                para começar.
-                            </p>
-                        </section>
-                    )}
+        {secao === 'inicio' && (
+          <div className="painel">
+            <h2>Bem-vindo!</h2>
+            <p>Escolha uma opção no menu para começar.</p>
 
-                    {painel === 'recurso' && (
-                        <section className="card-cadastro">
-                            <h2>Cadastrar Recurso</h2>
+            <div className="cartoes">
+              <button className="cartao" onClick={() => abrirSecao('reservar')}>
+                <span>▣</span>
+                <strong>Reservar recurso</strong>
+                <small>Escolha uma sala ou laboratório.</small>
+              </button>
 
-                            <p className="subtitulo">
-                                Preencha os dados da sala ou do laboratório.
-                            </p>
+              <button className="cartao" onClick={() => abrirSecao('consultar')}>
+                <span>▤</span>
+                <strong>Consultar reservas</strong>
+                <small>Consulte as reservas cadastradas.</small>
+              </button>
 
-                            <form
-                                onSubmit={handleSubmitRecurso}
-                                className="formulario"
-                            >
-                                <div className="campo-grupo">
-                                    <div className="campo">
-                                        <label htmlFor="codigo">
-                                            Código
-                                        </label>
+              <button className="cartao" onClick={() => abrirSecao('recursos')}>
+                <span>＋</span>
+                <strong>Cadastrar recurso</strong>
+                <small>Cadastre salas e laboratórios.</small>
+              </button>
+            </div>
+          </div>
+        )}
 
-                                        <input
-                                            type="number"
-                                            id="codigo"
-                                            name="codigo"
-                                            placeholder="Ex.: 101"
-                                            min="1"
-                                            step="1"
-                                            value={formRecurso.codigo}
-                                            onChange={handleChangeRecurso}
-                                            required
-                                        />
-                                    </div>
+        {secao === 'recursos' && (
+          <div className="painel">
+            <h2>Cadastrar recurso</h2>
 
-                                    <div className="campo">
-                                        <label htmlFor="tipo">
-                                            Tipo de Recurso
-                                        </label>
-
-                                        <select
-                                            id="tipo"
-                                            name="tipo"
-                                            value={formRecurso.tipo}
-                                            onChange={handleChangeRecurso}
-                                            required
-                                        >
-                                            <option value="Laboratório">
-                                                Laboratório
-                                            </option>
-
-                                            <option value="Sala de Aula">
-                                                Sala de Aula
-                                            </option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <div className="campo">
-                                    <label htmlFor="nome">
-                                        Nome do Recurso
-                                    </label>
-
-                                    <input
-                                        type="text"
-                                        id="nome"
-                                        name="nome"
-                                        placeholder="Ex.: Laboratório de Informática"
-                                        value={formRecurso.nome}
-                                        onChange={handleChangeRecurso}
-                                        required
-                                    />
-                                </div>
-
-                                <div className="campo-grupo">
-                                    <div className="campo">
-                                        <label htmlFor="capacidade">
-                                            Capacidade (pessoas)
-                                        </label>
-
-                                        <input
-                                            type="number"
-                                            id="capacidade"
-                                            name="capacidade"
-                                            placeholder="Ex.: 30"
-                                            min="1"
-                                            step="1"
-                                            value={formRecurso.capacidade}
-                                            onChange={handleChangeRecurso}
-                                            required
-                                        />
-                                    </div>
-
-                                    <div className="campo">
-                                        <label htmlFor="localizacao">
-                                            Localização
-                                        </label>
-
-                                        <input
-                                            type="text"
-                                            id="localizacao"
-                                            name="localizacao"
-                                            placeholder="Ex.: Bloco A"
-                                            value={formRecurso.localizacao}
-                                            onChange={handleChangeRecurso}
-                                            required
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="acoes">
-                                    <button
-                                        type="submit"
-                                        className="btn-salvar"
-                                        disabled={carregando}
-                                    >
-                                        {carregando
-                                            ? 'Cadastrando...'
-                                            : 'Cadastrar Recurso'}
-                                    </button>
-
-                                    <button
-                                        type="button"
-                                        className="btn-cancelar"
-                                        onClick={fecharPainel}
-                                        disabled={carregando}
-                                    >
-                                        Cancelar
-                                    </button>
-                                </div>
-                            </form>
-                        </section>
-                    )}
-
-                    {painel === 'reserva' && !confirmada && (
-                        <section className="card-cadastro">
-                            <h2>Nova Reserva</h2>
-
-                            <p className="subtitulo">
-                                Preencha os dados para reservar um recurso.
-                            </p>
-
-                            {mensagemReserva && (
-                                <p className="mensagem erro" role="alert">
-                                    {mensagemReserva}
-                                </p>
-                            )}
-
-                            <form
-                                onSubmit={handleSubmitReserva}
-                                className="formulario"
-                            >
-                                <div className="campo">
-                                    <label htmlFor="tipoReserva">
-                                        Tipo de Recurso
-                                    </label>
-
-                                    <select
-                                        id="tipoReserva"
-                                        name="tipo"
-                                        value={formReserva.tipo}
-                                        onChange={handleChangeReserva}
-                                        required
-                                    >
-                                        <option value="Sala de Aula">
-                                            Sala de Aula
-                                        </option>
-
-                                        <option value="Laboratório">
-                                            Laboratório
-                                        </option>
-                                    </select>
-                                </div>
-
-                                <div className="campo">
-                                    <label htmlFor="recursoReserva">
-                                        Recurso
-                                    </label>
-
-                                    <select
-                                        id="recursoReserva"
-                                        name="recurso"
-                                        value={formReserva.recurso}
-                                        onChange={handleChangeReserva}
-                                        required
-                                    >
-                                        <option value="">
-                                            Selecione um recurso
-                                        </option>
-
-                                        {recursos[formReserva.tipo].map(
-                                            (recurso) => (
-                                                <option
-                                                    key={recurso}
-                                                    value={recurso}
-                                                >
-                                                    {recurso}
-                                                </option>
-                                            )
-                                        )}
-                                    </select>
-                                </div>
-
-                                <div className="campo-grupo tres">
-                                    <div className="campo">
-                                        <label htmlFor="dataReserva">
-                                            Data
-                                        </label>
-
-                                        <input
-                                            type="date"
-                                            id="dataReserva"
-                                            name="data"
-                                            min={hoje}
-                                            value={formReserva.data}
-                                            onChange={handleChangeReserva}
-                                            required
-                                        />
-                                    </div>
-
-                                    <div className="campo">
-                                        <label htmlFor="inicioReserva">
-                                            Horário de Início
-                                        </label>
-
-                                        <input
-                                            type="time"
-                                            id="inicioReserva"
-                                            name="inicio"
-                                            value={formReserva.inicio}
-                                            onChange={handleChangeReserva}
-                                            required
-                                        />
-                                    </div>
-
-                                    <div className="campo">
-                                        <label htmlFor="fimReserva">
-                                            Horário de Término
-                                        </label>
-
-                                        <input
-                                            type="time"
-                                            id="fimReserva"
-                                            name="fim"
-                                            value={formReserva.fim}
-                                            onChange={handleChangeReserva}
-                                            required
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="acoes">
-                                    <button
-                                        type="submit"
-                                        className="btn-salvar"
-                                    >
-                                        Reservar
-                                    </button>
-
-                                    <button
-                                        type="button"
-                                        className="btn-cancelar"
-                                        onClick={fecharPainel}
-                                    >
-                                        Cancelar
-                                    </button>
-                                </div>
-                            </form>
-                        </section>
-                    )}
-
-                    {painel === 'reserva' && confirmada && (
-                        <section className="card-cadastro card-confirmacao">
-                            <div className="icone-sucesso">✓</div>
-
-                            <h2>Reserva realizada!</h2>
-
-                            <p className="subtitulo">
-                                Sua solicitação foi confirmada visualmente.
-                            </p>
-
-                            <div className="resumo">
-                                <div className="linha-resumo">
-                                    <span>Tipo</span>
-                                    <strong>{formReserva.tipo}</strong>
-                                </div>
-
-                                <div className="linha-resumo">
-                                    <span>Recurso</span>
-                                    <strong>{formReserva.recurso}</strong>
-                                </div>
-
-                                <div className="linha-resumo">
-                                    <span>Data</span>
-                                    <strong>
-                                        {formReserva.data
-                                            ? formReserva.data
-                                                  .split('-')
-                                                  .reverse()
-                                                  .join('/')
-                                            : ''}
-                                    </strong>
-                                </div>
-
-                                <div className="linha-resumo">
-                                    <span>Horário</span>
-                                    <strong>
-                                        {formReserva.inicio} -{' '}
-                                        {formReserva.fim}
-                                    </strong>
-                                </div>
-                            </div>
-
-                            <button
-                                type="button"
-                                className="btn-salvar"
-                                onClick={fecharPainel}
-                            >
-                                Voltar
-                            </button>
-                        </section>
-                    )}
-                </main>
+            <div className="campo">
+              <label>Tipo de recurso</label>
+              <select
+                value={tipoRecurso}
+                onChange={(e) =>
+                  setTipoRecurso(e.target.value as 'Sala de Aula' | 'Laboratório')
+                }
+              >
+                <option>Sala de Aula</option>
+                <option>Laboratório</option>
+              </select>
             </div>
 
-            <style jsx global>{`
-                * {
-                    box-sizing: border-box;
-                }
-
-                body {
-                    margin: 0;
-                    font-family: Arial, sans-serif;
-                    background: #000000;
-                    color: #ffffff;
-                }
-
-                .sistema {
-                    min-height: 100vh;
-                    background: #000000;
-                }
-
-                /* Cabeçalho */
-
-                .cabecalho {
-                    min-height: 70px;
-                    padding: 16px 30px;
-                    background: #121212;
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    gap: 20px;
-                    border-bottom: 1px solid #2a2a2a;
-                }
-
-                .cabecalho h1 {
-                    margin: 0;
-                    font-size: 18px;
-                    color: #ffffff;
-                }
-
-                .usuario-info {
-                    font-size: 14px;
-                    color: #ffffff;
-                }
-
-                /* Estrutura da página */
-
-                .estrutura {
-                    display: flex;
-                    min-height: calc(100vh - 70px);
-                }
-
-                /* Menu lateral */
-
-                .menu-lateral {
-                    width: 300px;
-                    flex-shrink: 0;
-                    background: #121212;
-                    padding-top: 20px;
-                    border-right: 1px solid #2a2a2a;
-                    display: flex;
-                    flex-direction: column;
-                }
-
-                .item-menu {
-                    display: flex;
-                    align-items: center;
-                    min-height: 58px;
-                    padding: 18px 28px;
-                    color: #cccccc;
-                    text-decoration: none;
-                    font-size: 16px;
-                    transition: background 0.2s, color 0.2s;
-                }
-
-                .item-menu:hover {
-                    background: #1f1f1f;
-                    color: #ffffff;
-                }
-
-                .item-menu.ativo {
-                    background: #0070f3;
-                    color: #ffffff;
-                    font-weight: bold;
-                }
-
-                /* Itens do menu que são botões */
-
-                .botao-menu {
-                    width: 100%;
-                    border: none;
-                    background: transparent;
-                    text-align: left;
-                    font-family: inherit;
-                    cursor: pointer;
-                }
-
-                .botao-menu.ativo {
-                    background: #0070f3;
-                }
-
-                .item-menu.sair {
-                    margin-top: auto;
-                    color: #ff6b6b;
-                    border-top: 1px solid #2a2a2a;
-                }
-
-                .item-menu.sair:hover {
-                    background: #2a1515;
-                }
-
-                /* Área principal */
-
-                .conteudo {
-                    flex: 1;
-                    min-width: 0;
-                    min-height: calc(100vh - 70px);
-                    padding: 140px 40px 28px;
-                    display: flex;
-                    align-items: flex-start;
-                    justify-content: center;
-                    background: #000000;
-                }
-
-                /* Com um formulário aberto, ele fica no centro da área */
-
-                .conteudo.com-form {
-                    align-items: center;
-                    padding: 28px 40px;
-                }
-
-                .boas-vindas {
-                    width: 100%;
-                    padding: 20px;
-                    background: transparent;
-                    border: none;
-                    text-align: center;
-                }
-
-                .boas-vindas h2 {
-                    margin: 0 0 18px;
-                    font-size: 42px;
-                    font-weight: bold;
-                    color: #ffffff;
-                }
-
-                .boas-vindas p {
-                    margin: 0;
-                    color: #cccccc;
-                    font-size: 20px;
-                    line-height: 1.6;
-                }
-
-                /* Formulários (recurso e reserva) */
-
-                .card-cadastro {
-                    width: 100%;
-                    max-width: 600px;
-                    padding: 35px 30px;
-                    background: #000000;
-                    border: 1px solid #ffffff;
-                    border-radius: 8px;
-                    box-shadow: 0 0 15px rgba(255, 255, 255, 0.05);
-                }
-
-                .card-cadastro h2 {
-                    margin: 0 0 6px;
-                    font-size: 24px;
-                }
-
-                .subtitulo {
-                    margin: 0 0 28px;
-                    color: #aaaaaa;
-                    font-size: 14px;
-                    line-height: 1.5;
-                }
-
-                .formulario {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 18px;
-                }
-
-                .campo-grupo {
-                    display: grid;
-                    grid-template-columns: 1fr 1fr;
-                    gap: 16px;
-                }
-
-                .campo-grupo.tres {
-                    grid-template-columns: repeat(3, minmax(0, 1fr));
-                    gap: 12px;
-                }
-
-                .campo {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 6px;
-                    min-width: 0;
-                }
-
-                .campo label {
-                    font-size: 14px;
-                    color: #ffffff;
-                    font-weight: 500;
-                }
-
-                .campo input,
-                .campo select {
-                    width: 100%;
-                    min-width: 0;
-                    padding: 12px 14px;
-                    background: #121212;
-                    border: 1px solid #333333;
-                    border-radius: 6px;
-                    color: #ffffff;
-                    font-size: 14px;
-                    outline: none;
-                    color-scheme: dark;
-                }
-
-                .campo input:focus,
-                .campo select:focus {
-                    border-color: #0070f3;
-                    box-shadow: 0 0 0 2px rgba(0, 112, 243, 0.25);
-                }
-
-                .campo select option {
-                    background: #121212;
-                    color: #ffffff;
-                }
-
-                .acoes {
-                    margin-top: 10px;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 10px;
-                }
-
-                .btn-salvar {
-                    width: 100%;
-                    padding: 12px;
-                    background: #0070f3;
-                    color: #ffffff;
-                    border: none;
-                    border-radius: 6px;
-                    font-size: 15px;
-                    font-weight: bold;
-                    cursor: pointer;
-                }
-
-                .btn-salvar:hover:not(:disabled) {
-                    background: #005bb5;
-                }
-
-                .btn-salvar:disabled {
-                    opacity: 0.6;
-                    cursor: wait;
-                }
-
-                .btn-cancelar {
-                    width: 100%;
-                    padding: 12px;
-                    background: transparent;
-                    color: #cccccc;
-                    border: 1px solid #444444;
-                    border-radius: 6px;
-                    font-size: 15px;
-                    cursor: pointer;
-                }
-
-                .btn-cancelar:hover:not(:disabled) {
-                    border-color: #ffffff;
-                    color: #ffffff;
-                }
-
-                /* Mensagem de erro da reserva */
-
-                .mensagem {
-                    padding: 12px;
-                    margin: 0 0 18px;
-                    border-radius: 5px;
-                    font-size: 14px;
-                    line-height: 1.5;
-                }
-
-                .mensagem.erro {
-                    color: #fca5a5;
-                    background: #2a1111;
-                    border: 1px solid #7f2929;
-                }
-
-                /* Confirmação da reserva */
-
-                .card-confirmacao {
-                    max-width: 520px;
-                    text-align: center;
-                }
-
-                .icone-sucesso {
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    width: 58px;
-                    height: 58px;
-                    margin: 0 auto 20px;
-                    border-radius: 50%;
-                    background: #16a765;
-                    color: #ffffff;
-                    font-size: 36px;
-                    font-weight: bold;
-                }
-
-                .card-confirmacao .subtitulo {
-                    margin-bottom: 24px;
-                }
-
-                .resumo {
-                    padding: 18px;
-                    margin-bottom: 24px;
-                    background: #121212;
-                    border: 1px solid #333333;
-                    border-radius: 6px;
-                    text-align: left;
-                }
-
-                .linha-resumo {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: flex-start;
-                    gap: 16px;
-                    padding: 12px 0;
-                    border-bottom: 1px solid #2a2a2a;
-                    font-size: 14px;
-                }
-
-                .linha-resumo:first-child {
-                    padding-top: 0;
-                }
-
-                .linha-resumo:last-child {
-                    padding-bottom: 0;
-                    border-bottom: none;
-                }
-
-                .linha-resumo span {
-                    color: #aaaaaa;
-                }
-
-                .linha-resumo strong {
-                    text-align: right;
-                    overflow-wrap: anywhere;
-                }
-
-                /* Ajustes para telas pequenas */
-
-                @media (max-width: 700px) {
-                    .cabecalho {
-                        padding: 16px;
-                    }
-
-                    .cabecalho h1 {
-                        font-size: 16px;
-                    }
-
-                    .estrutura {
-                        flex-direction: column;
-                    }
-
-                    .menu-lateral {
-                        width: 100%;
-                        padding-top: 0;
-                        overflow-x: auto;
-                        flex-direction: row;
-                    }
-
-                    .item-menu {
-                        min-height: 48px;
-                        padding: 14px;
-                        white-space: nowrap;
-                        font-size: 14px;
-                    }
-
-                    .botao-menu {
-                        width: auto;
-                    }
-
-                    .item-menu.sair {
-                        margin-top: 0;
-                        border-top: none;
-                    }
-
-                    .conteudo {
-                        min-height: calc(100vh - 118px);
-                        padding: 90px 14px 20px;
-                    }
-
-                    .conteudo.com-form {
-                        padding: 20px 14px;
-                    }
-
-                    .boas-vindas {
-                        padding: 15px 5px;
-                    }
-
-                    .boas-vindas h2 {
-                        font-size: 32px;
-                        margin-bottom: 14px;
-                    }
-
-                    .boas-vindas p {
-                        font-size: 16px;
-                    }
-
-                    .campo-grupo,
-                    .campo-grupo.tres {
-                        grid-template-columns: 1fr;
-                    }
-
-                    .card-cadastro {
-                        padding: 25px 20px;
-                    }
-
-                    .linha-resumo {
-                        font-size: 13px;
-                    }
-                }
-            `}</style>
-        </div>
-    );
+            <form onSubmit={cadastrarRecurso} className="formulario">
+              <div className="campo">
+                <label>Código</label>
+                <input
+                  value={formRecurso.codigo}
+                  onChange={(e) =>
+                    setFormRecurso({ ...formRecurso, codigo: e.target.value })
+                  }
+                  placeholder="Ex.: 101"
+                  required
+                />
+              </div>
+
+              <div className="campo">
+                <label>Nome</label>
+                <input
+                  value={formRecurso.nome}
+                  onChange={(e) =>
+                    setFormRecurso({ ...formRecurso, nome: e.target.value })
+                  }
+                  placeholder="Nome do recurso"
+                  required
+                />
+              </div>
+
+              <div className="campo">
+                <label>Capacidade</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={formRecurso.capacidade}
+                  onChange={(e) =>
+                    setFormRecurso({ ...formRecurso, capacidade: e.target.value })
+                  }
+                  placeholder="Quantidade de pessoas"
+                  required
+                />
+              </div>
+
+              <div className="campo">
+                <label>Localização</label>
+                <input
+                  value={formRecurso.localizacao}
+                  onChange={(e) =>
+                    setFormRecurso({ ...formRecurso, localizacao: e.target.value })
+                  }
+                  placeholder="Ex.: Bloco A"
+                  required
+                />
+              </div>
+
+              <button className="primario" type="submit">
+                Cadastrar recurso
+              </button>
+            </form>
+
+            <div className="titulo-lista">
+              <h2>Recursos cadastrados</h2>
+              <button className="secundario" onClick={() => carregarRecursos()}>
+                Atualizar lista
+              </button>
+            </div>
+
+            {carregando ? (
+              <p>Carregando recursos...</p>
+            ) : recursos.length === 0 ? (
+              <p>Nenhum recurso encontrado para este tipo.</p>
+            ) : (
+              <div className="tabela-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Código</th>
+                      <th>Nome</th>
+                      <th>Capacidade</th>
+                      <th>Localização</th>
+                      <th>Status</th>
+                      <th>Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recursos.map((r) => (
+                      <tr key={r.codigo}>
+                        <td>{r.codigo}</td>
+                        <td>{r.nome}</td>
+                        <td>{r.capacidade}</td>
+                        <td>{r.localizacao}</td>
+                        <td>{r.ativo ? 'Ativo' : 'Inativo'}</td>
+                        <td>
+                          <button
+                            className="secundario"
+                            onClick={() => alterarAtivo(r)}
+                          >
+                            {r.ativo ? 'Desativar' : 'Ativar'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {secao === 'reservar' && (
+          <div className="painel">
+            <h2>Nova reserva</h2>
+
+            <form onSubmit={enviarReserva} className="formulario">
+              <div className="campo">
+                <label>Tipo de recurso</label>
+                <select
+                  value={formReserva.tipo}
+                  onChange={(e) =>
+                    setFormReserva({
+                      ...formReserva,
+                      tipo: e.target.value,
+                      codigo: '',
+                    })
+                  }
+                >
+                  <option value="sala">Sala de aula</option>
+                  <option value="laboratorio">Laboratório</option>
+                </select>
+              </div>
+
+              <div className="campo">
+                <label>Recurso disponível</label>
+                <select
+                  value={formReserva.codigo}
+                  onChange={(e) =>
+                    setFormReserva({ ...formReserva, codigo: e.target.value })
+                  }
+                  required
+                >
+                  <option value="">Selecione um recurso</option>
+                  {recursos
+                    .filter((r) => r.ativo)
+                    .map((r) => (
+                      <option key={r.codigo} value={r.codigo}>
+                        {r.nome} — Código {r.codigo}
+                      </option>
+                    ))}
+                </select>
+
+                {!carregando && recursos.filter((r) => r.ativo).length === 0 && (
+                  <small>
+                    Nenhum recurso ativo encontrado. Confira se há recursos cadastrados.
+                  </small>
+                )}
+              </div>
+
+              <div className="campo">
+                <label>Data</label>
+                <input
+                  type="date"
+                  value={formReserva.data}
+                  onChange={(e) =>
+                    setFormReserva({ ...formReserva, data: e.target.value })
+                  }
+                  required
+                />
+              </div>
+
+              <div className="campo">
+                <label>Horário inicial</label>
+                <input
+                  type="time"
+                  value={formReserva.inicio}
+                  onChange={(e) =>
+                    setFormReserva({ ...formReserva, inicio: e.target.value })
+                  }
+                  required
+                />
+              </div>
+
+              <div className="campo">
+                <label>Horário final</label>
+                <input
+                  type="time"
+                  value={formReserva.fim}
+                  onChange={(e) =>
+                    setFormReserva({ ...formReserva, fim: e.target.value })
+                  }
+                  required
+                />
+              </div>
+
+              <button className="primario" type="submit">
+                Confirmar reserva
+              </button>
+            </form>
+          </div>
+        )}
+
+        {secao === 'consultar' && (
+          <div className="painel">
+            <h2>Consultar reservas</h2>
+
+            <form onSubmit={consultarReservas} className="formulario">
+              <div className="campo">
+                <label>Tipo de recurso</label>
+                <select
+                  value={filtros.tipo}
+                  onChange={(e) =>
+                    setFiltros({ ...filtros, tipo: e.target.value })
+                  }
+                >
+                  <option value="">Todos</option>
+                  <option value="sala">Sala de aula</option>
+                  <option value="laboratorio">Laboratório</option>
+                </select>
+              </div>
+
+              <div className="campo">
+                <label>Código do recurso</label>
+                <input
+                  value={filtros.codigo}
+                  onChange={(e) =>
+                    setFiltros({ ...filtros, codigo: e.target.value })
+                  }
+                  placeholder="Código"
+                />
+              </div>
+
+              <div className="campo">
+                <label>Data</label>
+                <input
+                  type="date"
+                  value={filtros.data}
+                  onChange={(e) =>
+                    setFiltros({ ...filtros, data: e.target.value })
+                  }
+                />
+              </div>
+
+              <button className="primario" type="submit">
+                Consultar
+              </button>
+
+              <button
+                className="secundario"
+                type="button"
+                onClick={() => {
+                  setFiltros({ tipo: '', codigo: '', data: '' });
+                  setReservas([]);
+                  setMensagem('');
+                }}
+              >
+                Limpar filtros
+              </button>
+            </form>
+
+            <div className="titulo-lista">
+              <h2>Resultado</h2>
+              <button className="secundario" onClick={() => consultarReservas()}>
+                Atualizar
+              </button>
+            </div>
+
+            {reservas.length === 0 ? (
+              <p>Nenhuma reserva para exibir. Faça uma consulta.</p>
+            ) : (
+              <div className="tabela-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Usuário</th>
+                      <th>Recurso</th>
+                      <th>Tipo</th>
+                      <th>Data</th>
+                      <th>Início</th>
+                      <th>Fim</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reservas.map((r, i) => (
+                      <tr key={r.idReserva ?? i}>
+                        <td>{r.nomeCompleto || '—'}</td>
+                        <td>{r.nomeRecurso || r.codigo || '—'}</td>
+                        <td>{r.tipoRecurso || '—'}</td>
+                        <td>
+                          {r.dataReserva
+                            ? String(r.dataReserva).slice(0, 10)
+                            : '—'}
+                        </td>
+                        <td>{r.horarioInicio || '—'}</td>
+                        <td>{r.horarioFim || '—'}</td>
+                        <td>{r.status || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      <style jsx>{`
+        * {
+          box-sizing: border-box;
+        }
+
+        .pagina {
+          min-height: 100vh;
+          display: flex;
+          background: #f3f5f9;
+          color: #202938;
+          font-family: Arial, Helvetica, sans-serif;
+        }
+
+        .menu {
+          width: 250px;
+          min-height: 100vh;
+          padding: 26px 18px;
+          background: #172554;
+          color: white;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          flex-shrink: 0;
+        }
+
+        .menu h2 {
+          font-size: 20px;
+          line-height: 1.4;
+          margin: 0 0 24px;
+        }
+
+        .menu button {
+          border: 0;
+          padding: 13px 14px;
+          border-radius: 8px;
+          color: #e5e7eb;
+          background: transparent;
+          text-align: left;
+          font-size: 14px;
+          cursor: pointer;
+        }
+
+        .menu button:hover {
+          background: #293b70;
+        }
+
+        .menu .sair {
+          margin-top: auto;
+          background: #991b1b;
+          color: white;
+          text-align: center;
+        }
+
+        .conteudo {
+          flex: 1;
+          min-width: 0;
+          padding: 30px;
+        }
+
+        .cabecalho {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 26px;
+        }
+
+        .cabecalho h1 {
+          margin: 0 0 8px;
+          font-size: 28px;
+        }
+
+        .cabecalho p {
+          margin: 0;
+          color: #64748b;
+        }
+
+        .painel {
+          background: white;
+          padding: 26px;
+          border-radius: 14px;
+          box-shadow: 0 4px 16px #0f172a0c;
+        }
+
+        .painel h2 {
+          margin-top: 0;
+          font-size: 20px;
+        }
+
+        .cartoes {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          gap: 18px;
+          margin-top: 25px;
+        }
+
+        .cartao {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 12px;
+          min-height: 150px;
+          padding: 20px;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: 12px;
+          text-align: left;
+          cursor: pointer;
+          color: #1e293b;
+        }
+
+        .cartao:hover {
+          border-color: #647de0;
+          background: #f1f5ff;
+        }
+
+        .cartao span {
+          font-size: 26px;
+          color: #4338ca;
+        }
+
+        .cartao small {
+          color: #64748b;
+          line-height: 1.5;
+        }
+
+        .formulario {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+          gap: 18px;
+          align-items: end;
+          margin: 20px 0 28px;
+        }
+
+        .campo {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .campo label {
+          font-size: 14px;
+          font-weight: 600;
+        }
+
+        .campo input,
+        .campo select {
+          width: 100%;
+          min-width: 0;
+          padding: 12px;
+          border: 1px solid #cbd5e1;
+          border-radius: 8px;
+          background: white;
+          color: #1e293b;
+          font: inherit;
+        }
+
+        .campo input:focus,
+        .campo select:focus {
+          outline: 2px solid #c7d2fe;
+          border-color: #6366f1;
+        }
+
+        .campo small {
+          color: #b45309;
+          line-height: 1.4;
+        }
+
+        .primario,
+        .secundario {
+          padding: 12px 16px;
+          border: 0;
+          border-radius: 8px;
+          cursor: pointer;
+          font-weight: 600;
+          min-height: 42px;
+        }
+
+        .primario {
+          background: #4338ca;
+          color: white;
+        }
+
+        .primario:hover {
+          background: #3730a3;
+        }
+
+        .secundario {
+          background: #e2e8f0;
+          color: #1e293b;
+        }
+
+        .secundario:hover {
+          background: #cbd5e1;
+        }
+
+        .mensagem {
+          margin-bottom: 20px;
+          padding: 14px 16px;
+          border-radius: 8px;
+          background: #eef2ff;
+          border: 1px solid #c7d2fe;
+          color: #312e81;
+          overflow-wrap: anywhere;
+        }
+
+        .titulo-lista {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-top: 28px;
+        }
+
+        .titulo-lista h2 {
+          margin: 0;
+        }
+
+        .tabela-container {
+          width: 100%;
+          overflow-x: auto;
+          margin-top: 18px;
+        }
+
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          min-width: 650px;
+        }
+
+        th,
+        td {
+          padding: 13px 12px;
+          border-bottom: 1px solid #e2e8f0;
+          text-align: left;
+          font-size: 14px;
+        }
+
+        th {
+          background: #f8fafc;
+          color: #475569;
+        }
+
+        @media (max-width: 760px) {
+          .pagina {
+            flex-direction: column;
+          }
+
+          .menu {
+            width: 100%;
+            min-height: auto;
+          }
+
+          .menu .sair {
+            margin-top: 8px;
+          }
+
+          .conteudo {
+            padding: 18px;
+          }
+
+          .painel {
+            padding: 18px;
+          }
+
+          .cabecalho h1 {
+            font-size: 23px;
+          }
+        }
+      `}</style>
+    </main>
+  );
 }
