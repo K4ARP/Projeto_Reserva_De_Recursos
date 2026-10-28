@@ -16,6 +16,18 @@ function validarIntervalo(inicio, fim) {
     }
 }
 
+// Confere se a data está no formato AAAA-MM-DD e com um ano razoável.
+// Evita o erro técnico do SQL Server ("Out of range") quando chega uma
+// data como 22026-09-28 e devolve uma mensagem clara para o usuário.
+function validarData(data) {
+    const valida = /^\d{4}-\d{2}-\d{2}$/.test(data || '');
+    const ano = Number(String(data || '').slice(0, 4));
+
+    if (!valida || ano < 2000 || ano > 2100) {
+        throw new Error('Data inválida. Use o formato AAAA-MM-DD com um ano de 4 dígitos.');
+    }
+}
+
 function obterTabela(tipo) {
     if (tipo === 'sala') {
         return { tabela: 'dbo.Sala', colunaReserva: 'codigoSala' };
@@ -38,6 +50,7 @@ export async function listarRecursosDisponiveis(tipo, data, inicio, fim) {
     const horarioFim = normalizarHorario(fim);
 
     validarIntervalo(horarioInicio, horarioFim);
+    validarData(data);
 
     const pedido = bd.request();
     pedido.input('dataReserva', mssql.Date, data);
@@ -62,7 +75,10 @@ export async function listarRecursosDisponiveis(tipo, data, inicio, fim) {
                 AND reserva.dataReserva = @dataReserva
                 AND reserva.horarioInicio < @horarioFim
                 AND reserva.horarioFim > @horarioInicio
-                AND st.nomeStatus = 'Reservado'
+                -- Só uma reserva com status 'Livre' libera o recurso.
+                -- Qualquer outro status (Reservado, Ocupado, Bloqueado)
+                -- deixa o recurso indisponível naquele horário.
+                AND st.nomeStatus <> 'Livre'
           )
         ORDER BY r.nome;
     `);
@@ -110,6 +126,7 @@ export async function criarReserva(dados) {
     const inicio = normalizarHorario(horarioInicio);
     const fim = normalizarHorario(horarioFim);
     validarIntervalo(inicio, fim);
+    validarData(dataReserva);
 
     const coluna = temSala ? 'codigoSala' : 'codigoLaboratorio';
 
@@ -142,7 +159,8 @@ export async function criarReserva(dados) {
           AND r.dataReserva = @dataReserva
           AND r.horarioInicio < @horarioFim
           AND r.horarioFim > @horarioInicio
-          AND st.nomeStatus = 'Reservado';
+          -- Mesma regra da lista de disponíveis: só 'Livre' não bloqueia.
+          AND st.nomeStatus <> 'Livre';
     `);
 
     if (conflito.recordset.length) {
