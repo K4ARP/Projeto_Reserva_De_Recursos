@@ -1,0 +1,297 @@
+/* frontend/app/components/painel.module.css  (ARQUIVO NOVO)
+   Estilos que antes ficavam dentro da página principal (<style jsx>).
+   Agora são compartilhados por todas as páginas do painel.
+   É um "CSS Module": os nomes das classes valem só para quem importa
+   este arquivo, então não há conflito com as outras páginas. */
+
+/* Faz todo elemento da página contar a borda no tamanho */
+.pagina,
+.pagina * {
+  box-sizing: border-box;
+}
+
+/* Estrutura geral: menu lateral + conteúdo */
+.pagina {
+  min-height: 100vh;
+  display: flex;
+  background: #f3f5f9;
+  color: #202938;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* ---------- Menu lateral ---------- */
+.menu {
+  width: 250px;
+  min-height: 100vh;
+  padding: 26px 18px;
+  background: #172554;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.menu h2 {
+  font-size: 20px;
+  line-height: 1.4;
+  margin: 0 0 24px;
+}
+
+/* Links e botão do menu têm a mesma aparência */
+.menu a,
+.menu button {
+  display: block;
+  border: 0;
+  padding: 13px 14px;
+  border-radius: 8px;
+  color: #e5e7eb;
+  background: transparent;
+  text-align: left;
+  text-decoration: none;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.menu a:hover,
+.menu button:hover {
+  background: #293b70;
+}
+
+/* Botão Sair fica no rodapé do menu */
+.menu button.sair {
+  margin-top: auto;
+  background: #991b1b;
+  color: white;
+  text-align: center;
+}
+
+/* ---------- Área de conteúdo ---------- */
+.conteudo {
+  flex: 1;
+  min-width: 0;
+  padding: 30px;
+}
+
+.cabecalho {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 26px;
+}
+
+.cabecalho h1 {
+  margin: 0 0 8px;
+  font-size: 28px;
+}
+
+.cabecalho p {
+  margin: 0;
+  color: #64748b;
+}
+
+.painel {
+  background: white;
+  padding: 26px;
+  border-radius: 14px;
+  box-shadow: 0 4px 16px #0f172a0c;
+}
+
+.painel h2 {
+  margin-top: 0;
+  font-size: 20px;
+}
+
+/* ---------- Cartões da página inicial ---------- */
+.cartoes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 18px;
+  margin-top: 25px;
+}
+
+.cartao {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 150px;
+  padding: 20px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  color: #1e293b;
+}
+
+.cartao:hover {
+  border-color: #647de0;
+  background: #f1f5ff;
+}
+
+.cartao span {
+  font-size: 26px;
+  color: #4338ca;
+}
+
+.cartao small {
+  color: #64748b;
+  line-height: 1.5;
+}
+
+/* ---------- Formulários ---------- */
+.formulario {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 18px;
+  align-items: end;
+  margin: 20px 0 28px;
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.campo label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.campo input,
+.campo select {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: white;
+  color: #1e293b;
+  font: inherit;
+}
+
+.campo input:focus,
+.campo select:focus {
+  outline: 2px solid #c7d2fe;
+  border-color: #6366f1;
+}
+
+.campo small {
+  color: #b45309;
+  line-height: 1.4;
+}
+
+/* ---------- Botões ---------- */
+.primario,
+.secundario {
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  min-height: 42px;
+}
+
+.primario {
+  background: #4338ca;
+  color: white;
+}
+
+.primario:hover {
+  background: #3730a3;
+}
+
+.primario:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.secundario {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+
+.secundario:hover {
+  background: #cbd5e1;
+}
+
+/* ---------- Mensagem de aviso/erro ---------- */
+.mensagem {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  color: #312e81;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Listas e tabelas ---------- */
+.tituloLista {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.tituloLista h2 {
+  margin: 0;
+}
+
+.tabelaContainer {
+  width: 100%;
+  overflow-x: auto;
+  margin-top: 18px;
+}
+
+.tabelaContainer table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 650px;
+}
+
+.tabelaContainer th,
+.tabelaContainer td {
+  padding: 13px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  font-size: 14px;
+}
+
+.tabelaContainer th {
+  background: #f8fafc;
+  color: #475569;
+}
+
+/* ---------- Celular / tela pequena ---------- */
+@media (max-width: 760px) {
+  .pagina {
+    flex-direction: column;
+  }
+
+  .menu {
+    width: 100%;
+    min-height: auto;
+  }
+
+  .menu button.sair {
+    margin-top: 8px;
+  }
+
+  .conteudo {
+    padding: 18px;
+  }
+
+  .painel {
+    padding: 18px;
+  }
+
+  .cabecalho h1 {
+    font-size: 23px;
+  }
+}

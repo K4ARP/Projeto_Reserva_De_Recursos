@@ -1,497 +1,206 @@
+// frontend/app/consultar-reservas/page.tsx  (REESCRITO)
+//
+// Página de CONSULTAR RESERVAS.
+// Problemas da versão antiga que foram corrigidos:
+//  - chamava /reservas sem enviar o token (o Node respondia 401);
+//  - enviava filtros que o Node não entende (horario/usuario/recurso).
+// Agora chama GET /consulta-reservas, a rota feita para esta tela, com o
+// token e os filtros: data, horario, usuario e tipoRecurso.
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import Link from 'next/link';
+import LayoutPainel from '../components/LayoutPainel';
+import styles from '../components/painel.module.css';
+import { API, obterToken, lerResposta, extrairLista } from '../lib/api';
 
-const API = 'http://localhost:8080';
-
-type Filtros = {
-    data: string;
-    horario: string;
-    usuario: string;
-    recurso: string;
-};
-
+// Formato de cada reserva devolvida pelo Node
 type Reserva = {
-    id?: number;
-    idReserva?: number;
-    codigo?: number;
-    data?: string;
-    dataReserva?: string;
-    horario?: string;
-    horarioInicio?: string;
-    horarioFim?: string;
-    recurso?: string;
-    nomeRecurso?: string;
-    usuario?: string;
-    nomeUsuario?: string;
-    status?: string;
+  idReserva: number;
+  nomeUsuario: string;
+  dataReserva: string;
+  horarioInicio: string;
+  horarioFim: string;
+  nomeStatus: string;
+  tipoRecurso: string;
+  nomeRecurso: string;
 };
+
+const filtrosVazios = { data: '', horario: '', usuario: '', tipo: '' };
+
+// Transforma "2026-10-30T00:00:00.000Z" em "30/10/2026"
+function formatarData(valor?: string) {
+  if (!valor) return '—';
+  const [ano, mes, dia] = valor.substring(0, 10).split('-');
+  return ano && mes && dia ? `${dia}/${mes}/${ano}` : valor;
+}
 
 export default function ConsultarReservas() {
-    const [filtros, setFiltros] = useState<Filtros>({
-        data: '',
-        horario: '',
-        usuario: '',
-        recurso: 'Todos',
-    });
+  const [filtros, setFiltros] = useState(filtrosVazios);
+  const [reservas, setReservas] = useState<Reserva[]>([]);
+  const [mensagem, setMensagem] = useState('');
+  const [carregando, setCarregando] = useState(false);
+  const [pesquisou, setPesquisou] = useState(false);
 
-    const [reservas, setReservas] = useState<Reserva[]>([]);
-    const [carregando, setCarregando] = useState(false);
-    const [pesquisou, setPesquisou] = useState(false);
-    const [mensagem, setMensagem] = useState('');
+  // Atualiza um filtro
+  function alterar(campo: string, valor: string) {
+    setFiltros((anterior) => ({ ...anterior, [campo]: valor }));
+  }
 
-    function alterarFiltro(
-        campo: keyof Filtros,
-        valor: string
-    ) {
-        setFiltros((anterior) => ({
-            ...anterior,
-            [campo]: valor,
-        }));
+  // Envia os filtros para o Node e mostra o resultado
+  async function pesquisar(evento: FormEvent<HTMLFormElement>) {
+    evento.preventDefault();
+    setMensagem('');
+
+    // A rota exige login
+    const token = obterToken();
+    if (!token) {
+      setMensagem('Faça login para consultar as reservas.');
+      return;
     }
 
-    async function handlePesquisar(evento: FormEvent<HTMLFormElement>) {
-        evento.preventDefault();
+    setCarregando(true);
+    setPesquisou(true);
 
-        setCarregando(true);
-        setMensagem('');
-        setPesquisou(true);
+    try {
+      // Só envia os filtros preenchidos
+      const parametros = new URLSearchParams();
+      if (filtros.data) parametros.set('data', filtros.data);
+      if (filtros.horario) parametros.set('horario', filtros.horario);
+      if (filtros.usuario.trim()) parametros.set('usuario', filtros.usuario.trim());
+      if (filtros.tipo) parametros.set('tipoRecurso', filtros.tipo);
 
-        try {
-            const parametros = new URLSearchParams();
+      const resposta = await fetch(
+        `${API}/consulta-reservas?${parametros.toString()}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
-            if (filtros.data) {
-                parametros.set('data', filtros.data);
-            }
-
-            if (filtros.horario) {
-                parametros.set('horario', filtros.horario);
-            }
-
-            if (filtros.usuario.trim()) {
-                parametros.set('usuario', filtros.usuario.trim());
-            }
-
-            if (filtros.recurso !== 'Todos') {
-                parametros.set('recurso', filtros.recurso);
-            }
-
-            const resposta = await fetch(
-                `${API}/reservas?${parametros.toString()}`
-            );
-
-            const resultado = await resposta.json();
-
-            if (!resposta.ok) {
-                throw new Error(
-                    resultado.mensagem ||
-                    `Erro HTTP ${resposta.status}.`
-                );
-            }
-
-            if (!Array.isArray(resultado)) {
-                throw new Error(
-                    'A API não retornou uma lista de reservas.'
-                );
-            }
-
-            setReservas(resultado);
-        } catch (erro) {
-            setReservas([]);
-
-            setMensagem(
-                erro instanceof Error
-                    ? erro.message
-                    : 'Não foi possível consultar as reservas.'
-            );
-        } finally {
-            setCarregando(false);
-        }
+      const dados = await lerResposta(resposta);
+      setReservas(extrairLista(dados) as Reserva[]);
+    } catch (erro) {
+      setReservas([]);
+      setMensagem(
+        erro instanceof Error
+          ? `Erro ao consultar reservas: ${erro.message}`
+          : 'Erro ao consultar reservas.'
+      );
+    } finally {
+      setCarregando(false);
     }
+  }
 
-    function formatarData(valor?: string) {
-        if (!valor) return '—';
+  // Limpa filtros e resultado
+  function limpar() {
+    setFiltros(filtrosVazios);
+    setReservas([]);
+    setMensagem('');
+    setPesquisou(false);
+  }
 
-        const data = valor.substring(0, 10);
+  return (
+    <LayoutPainel titulo="Consultar Reservas" mensagem={mensagem}>
+      <section className={styles.painel}>
+        <h2>Filtros</h2>
 
-        if (/^\d{4}-\d{2}-\d{2}$/.test(data)) {
-            const [ano, mes, dia] = data.split('-');
-            return `${dia}/${mes}/${ano}`;
-        }
+        <form onSubmit={pesquisar}>
+          <div className={styles.formulario}>
+            <div className={styles.campo}>
+              <label htmlFor="data">Data</label>
+              <input
+                id="data"
+                type="date"
+                value={filtros.data}
+                onChange={(e) => alterar('data', e.target.value)}
+              />
+            </div>
 
-        return valor;
-    }
+            <div className={styles.campo}>
+              <label htmlFor="horario">Horário</label>
+              <input
+                id="horario"
+                type="time"
+                value={filtros.horario}
+                onChange={(e) => alterar('horario', e.target.value)}
+              />
+            </div>
 
-    function formatarHorario(reserva: Reserva) {
-        if (reserva.horario) return reserva.horario;
+            <div className={styles.campo}>
+              <label htmlFor="usuario">Usuário</label>
+              <input
+                id="usuario"
+                placeholder="Nome do usuário"
+                value={filtros.usuario}
+                onChange={(e) => alterar('usuario', e.target.value)}
+              />
+            </div>
 
-        if (reserva.horarioInicio || reserva.horarioFim) {
-            return `${reserva.horarioInicio || '--:--'} às ${
-                reserva.horarioFim || '--:--'
-            }`;
-        }
+            <div className={styles.campo}>
+              <label htmlFor="tipo">Tipo de recurso</label>
+              <select
+                id="tipo"
+                value={filtros.tipo}
+                onChange={(e) => alterar('tipo', e.target.value)}
+              >
+                <option value="">Todos</option>
+                <option value="sala">Sala de Aula</option>
+                <option value="laboratorio">Laboratório</option>
+              </select>
+            </div>
+          </div>
 
-        return '—';
-    }
+          <button type="submit" className={styles.primario} disabled={carregando}>
+            {carregando ? 'Pesquisando...' : 'Pesquisar'}
+          </button>{' '}
+          <button type="button" className={styles.secundario} onClick={limpar}>
+            Limpar filtros
+          </button>
+        </form>
 
-    function nomeRecurso(reserva: Reserva) {
-        return reserva.nomeRecurso || reserva.recurso || '—';
-    }
+        <div className={styles.tituloLista}>
+          <h2>Reservas encontradas</h2>
+        </div>
 
-    function nomeUsuario(reserva: Reserva) {
-        return reserva.nomeUsuario || reserva.usuario || '—';
-    }
+        <div className={styles.tabelaContainer}>
+          <table>
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Horário</th>
+                <th>Recurso</th>
+                <th>Tipo</th>
+                <th>Usuário</th>
+                <th>Status</th>
+              </tr>
+            </thead>
 
-    function identificador(reserva: Reserva, indice: number) {
-        return reserva.idReserva ?? reserva.id ?? reserva.codigo ?? indice;
-    }
+            <tbody>
+              {reservas.map((r) => (
+                <tr key={r.idReserva}>
+                  <td>{formatarData(r.dataReserva)}</td>
+                  <td>
+                    {r.horarioInicio} às {r.horarioFim}
+                  </td>
+                  <td>{r.nomeRecurso}</td>
+                  <td>{r.tipoRecurso}</td>
+                  <td>{r.nomeUsuario}</td>
+                  <td>{r.nomeStatus}</td>
+                </tr>
+              ))}
 
-    return (
-        <main className="pagina">
-            <header className="cabecalho">
-                <div>
-                    <h1>Consultar Reservas</h1>
-                    <p>Consulte as reservas de salas e laboratórios.</p>
-                </div>
-
-                <Link href="/principal" className="botao-voltar">
-                    Voltar à Página Principal
-                </Link>
-            </header>
-
-            <section className="painel">
-                <h2>Filtros de pesquisa</h2>
-
-                <form onSubmit={handlePesquisar}>
-                    <div className="filtros">
-                        <label>
-                            Data
-                            <input
-                                type="date"
-                                value={filtros.data}
-                                onChange={(evento) =>
-                                    alterarFiltro('data', evento.target.value)
-                                }
-                            />
-                        </label>
-
-                        <label>
-                            Horário
-                            <input
-                                type="time"
-                                value={filtros.horario}
-                                onChange={(evento) =>
-                                    alterarFiltro('horario', evento.target.value)
-                                }
-                            />
-                        </label>
-
-                        <label>
-                            Usuário
-                            <input
-                                type="text"
-                                placeholder="Nome do usuário"
-                                value={filtros.usuario}
-                                onChange={(evento) =>
-                                    alterarFiltro('usuario', evento.target.value)
-                                }
-                            />
-                        </label>
-
-                        <label>
-                            Tipo de recurso
-                            <select
-                                value={filtros.recurso}
-                                onChange={(evento) =>
-                                    alterarFiltro('recurso', evento.target.value)
-                                }
-                            >
-                                <option value="Todos">Todos</option>
-                                <option value="Sala de Aula">
-                                    Sala de Aula
-                                </option>
-                                <option value="Laboratório">
-                                    Laboratório
-                                </option>
-                            </select>
-                        </label>
-                    </div>
-
-                    <div className="acoes">
-                        <button type="submit" disabled={carregando}>
-                            {carregando ? 'Pesquisando...' : 'Pesquisar'}
-                        </button>
-
-                        <button
-                            type="button"
-                            className="botao-limpar"
-                            onClick={() => {
-                                setFiltros({
-                                    data: '',
-                                    horario: '',
-                                    usuario: '',
-                                    recurso: 'Todos',
-                                });
-                                setReservas([]);
-                                setMensagem('');
-                                setPesquisou(false);
-                            }}
-                        >
-                            Limpar filtros
-                        </button>
-                    </div>
-                </form>
-            </section>
-
-            {mensagem && (
-                <div className="mensagem erro" role="alert">
-                    {mensagem}
-                </div>
-            )}
-
-            <section className="painel">
-                <h2>Reservas encontradas</h2>
-
-                <div className="tabela-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Data</th>
-                                <th>Horário</th>
-                                <th>Recurso</th>
-                                <th>Usuário</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-
-                        <tbody>
-                            {reservas.map((reserva, indice) => (
-                                <tr key={identificador(reserva, indice)}>
-                                    <td>
-                                        {formatarData(
-                                            reserva.dataReserva || reserva.data
-                                        )}
-                                    </td>
-                                    <td>{formatarHorario(reserva)}</td>
-                                    <td>{nomeRecurso(reserva)}</td>
-                                    <td>{nomeUsuario(reserva)}</td>
-                                    <td>
-                                        <span className="status">
-                                            {reserva.status || '—'}
-                                        </span>
-                                    </td>
-                                </tr>
-                            ))}
-
-                            {reservas.length === 0 && (
-                                <tr>
-                                    <td colSpan={5} className="vazio">
-                                        {carregando
-                                            ? 'Carregando reservas...'
-                                            : pesquisou && !mensagem
-                                              ? 'Nenhuma reserva encontrada.'
-                                              : 'Utilize os filtros e clique em Pesquisar.'}
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-
-            <style jsx>{`
-                * {
-                    box-sizing: border-box;
-                }
-
-                .pagina {
-                    min-height: 100vh;
-                    padding: 32px;
-                    background: #101010;
-                    color: #f5f5f5;
-                    font-family: Arial, Helvetica, sans-serif;
-                }
-
-                .cabecalho {
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    gap: 20px;
-                    flex-wrap: wrap;
-                    margin-bottom: 28px;
-                }
-
-                h1 {
-                    margin: 0 0 8px;
-                    font-size: 30px;
-                }
-
-                h2 {
-                    margin: 0 0 22px;
-                    font-size: 21px;
-                }
-
-                p {
-                    margin: 0;
-                    color: #bdbdbd;
-                }
-
-                .painel {
-                    margin-bottom: 24px;
-                    padding: 25px;
-                    background: #1b1b1b;
-                    border: 1px solid #393939;
-                    border-radius: 12px;
-                }
-
-                .filtros {
-                    display: grid;
-                    grid-template-columns: repeat(4, minmax(0, 1fr));
-                    gap: 18px;
-                }
-
-                label {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 9px;
-                    color: #e7e7e7;
-                    font-size: 14px;
-                }
-
-                input,
-                select {
-                    width: 100%;
-                    min-width: 0;
-                    padding: 12px;
-                    color: #f5f5f5;
-                    background: #292929;
-                    border: 1px solid #555;
-                    border-radius: 7px;
-                    font: inherit;
-                }
-
-                input:focus,
-                select:focus {
-                    outline: 2px solid #4285f4;
-                    outline-offset: 1px;
-                }
-
-                .acoes {
-                    display: flex;
-                    gap: 12px;
-                    flex-wrap: wrap;
-                    margin-top: 22px;
-                }
-
-                button,
-                .botao-voltar {
-                    display: inline-flex;
-                    align-items: center;
-                    justify-content: center;
-                    padding: 12px 18px;
-                    color: white;
-                    background: #2563eb;
-                    border: 0;
-                    border-radius: 7px;
-                    font-size: 14px;
-                    font-weight: bold;
-                    text-decoration: none;
-                    cursor: pointer;
-                }
-
-                button:hover,
-                .botao-voltar:hover {
-                    background: #1d4ed8;
-                }
-
-                button:disabled {
-                    opacity: 0.65;
-                    cursor: wait;
-                }
-
-                .botao-limpar {
-                    background: #444;
-                }
-
-                .botao-limpar:hover {
-                    background: #555;
-                }
-
-                .mensagem {
-                    margin-bottom: 20px;
-                    padding: 14px;
-                    border-radius: 7px;
-                }
-
-                .erro {
-                    color: #fecaca;
-                    background: #451a1a;
-                    border: 1px solid #7f1d1d;
-                }
-
-                .tabela-container {
-                    width: 100%;
-                    overflow-x: auto;
-                }
-
-                table {
-                    width: 100%;
-                    border-collapse: collapse;
-                    text-align: left;
-                }
-
-                th,
-                td {
-                    padding: 15px 12px;
-                    border-bottom: 1px solid #383838;
-                    white-space: nowrap;
-                }
-
-                th {
-                    color: #d5d5d5;
-                    background: #252525;
-                }
-
-                .status {
-                    display: inline-block;
-                    padding: 5px 10px;
-                    background: #303030;
-                    border: 1px solid #555;
-                    border-radius: 20px;
-                }
-
-                .vazio {
-                    padding: 28px 12px;
-                    color: #bdbdbd;
-                    text-align: center;
-                    white-space: normal;
-                }
-
-                @media (max-width: 900px) {
-                    .filtros {
-                        grid-template-columns: repeat(2, minmax(0, 1fr));
-                    }
-                }
-
-                @media (max-width: 600px) {
-                    .pagina {
-                        padding: 18px;
-                    }
-
-                    .painel {
-                        padding: 18px;
-                    }
-
-                    .filtros {
-                        grid-template-columns: 1fr;
-                    }
-
-                    .cabecalho {
-                        align-items: flex-start;
-                    }
-                }
-            `}</style>
-        </main>
-    );
+              {reservas.length === 0 && (
+                <tr>
+                  <td colSpan={6}>
+                    {carregando
+                      ? 'Carregando reservas...'
+                      : pesquisou && !mensagem
+                        ? 'Nenhuma reserva encontrada.'
+                        : 'Use os filtros e clique em Pesquisar.'}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </LayoutPainel>
+  );
 }
