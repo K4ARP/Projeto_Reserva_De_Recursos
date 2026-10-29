@@ -8,6 +8,7 @@ import loginRoute from './src/routes/loginRoute.js';
 import recursoRoute from './src/routes/recursoRoute.js';
 import reservaRoute from './src/routes/reservaRoute.js';
 import consultaReservaRoute from './src/routes/consultaReservaRoute.js';
+import statusRoute from './src/routes/statusRoute.js';
 
 const app = express();
 const PORTA = process.env.PORTA || 8080;
@@ -34,6 +35,9 @@ app.use('/recursos', recursoRoute);
 
 // Rotas de cadastro e disponibilidade de reservas
 app.use('/reservas', reservaRoute);
+
+// Cadastro e listagem de status (Livre, Ocupado, Bloqueado, Reservado...)
+app.use('/status', statusRoute);
 
 // Rota separada para consultar reservas cadastradas
 app.use('/consulta-reservas', consultaReservaRoute);

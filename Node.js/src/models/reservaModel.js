@@ -1,7 +1,28 @@
-
+// Node.js/src/models/reservaModel.js
+//
+// Model de reservas: tudo que conversa com o banco sobre reservas.
+//  - listarRecursosDisponiveis: recursos LIVRES em um período
+//  - criarReserva:              grava uma reserva (sem conflito)
+//  - listarReservas:            consulta reservas com filtros
+//
+// DOIS MODOS DE RESERVA
+//  "horario": um dia, de uma hora até outra. Se a hora final for MENOR
+//             que a inicial, a reserva termina no DIA SEGUINTE
+//             (ex.: 23:00 até 05:00 = da noite até a madrugada).
+//  "dias":    do dia inicial ao dia final (inclusive), DIA INTEIRO.
+//
+// Como a reserva é guardada na tabela dbo.Reserva:
+//   dataReserva + horarioInicio  = começo
+//   dataFim     + horarioFim     = fim
+// (dia inteiro = 00:00:00 até 23:59:59)
 import mssql from 'mssql';
 import conectaBD from '../config/dbConexao.js';
 
+// ---------------------------------------------------------------------
+// Funções de apoio (validações)
+// ---------------------------------------------------------------------
+
+// Aceita "HH:mm" ou "HH:mm:ss" e devolve sempre "HH:mm:ss"
 function normalizarHorario(horario) {
     if (!/^\d{2}:\d{2}(:\d{2})?$/.test(horario || '')) {
         throw new Error('Horário inválido. Use o formato HH:mm.');
@@ -10,24 +31,81 @@ function normalizarHorario(horario) {
     return horario.length === 5 ? `${horario}:00` : horario;
 }
 
-function validarIntervalo(inicio, fim) {
-    if (inicio >= fim) {
-        throw new Error('O horário final deve ser posterior ao inicial.');
-    }
-}
-
-// Confere se a data está no formato AAAA-MM-DD e com um ano razoável.
-// Evita o erro técnico do SQL Server ("Out of range") quando chega uma
-// data como 22026-09-28 e devolve uma mensagem clara para o usuário.
+// Confere se a data está no formato AAAA-MM-DD, com ano de 4 dígitos
+// e uma data que realmente existe (ex.: não aceita 2026-02-31).
+// Evita o erro técnico do SQL Server ("Out of range") e devolve uma
+// mensagem clara para o usuário.
 function validarData(data) {
-    const valida = /^\d{4}-\d{2}-\d{2}$/.test(data || '');
-    const ano = Number(String(data || '').slice(0, 4));
+    const texto = String(data || '');
+    const formatoOk = /^\d{4}-\d{2}-\d{2}$/.test(texto);
+    const ano = Number(texto.slice(0, 4));
+    const existe = formatoOk &&
+        !Number.isNaN(new Date(`${texto}T00:00:00Z`).getTime()) &&
+        new Date(`${texto}T00:00:00Z`).toISOString().slice(0, 10) === texto;
 
-    if (!valida || ano < 2000 || ano > 2100) {
-        throw new Error('Data inválida. Use o formato AAAA-MM-DD com um ano de 4 dígitos.');
+    if (!existe || ano < 2000 || ano > 2100) {
+        throw new Error(
+            'Data inválida. Use o formato AAAA-MM-DD com um ano de 4 dígitos.'
+        );
     }
 }
 
+// Soma (ou subtrai) dias em uma data AAAA-MM-DD
+function somarDias(data, dias) {
+    const d = new Date(`${data}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + dias);
+    return d.toISOString().slice(0, 10);
+}
+
+// Transforma o que o usuário escolheu no período real da reserva.
+// Devolve: dataInicio, horarioInicio, dataFim, horarioFim.
+function montarPeriodo({ modo, data, dataFinal, inicio, fim }) {
+    validarData(data);
+
+    // ---- Por dias: dia inteiro, do dia inicial ao final (inclusive)
+    if (modo === 'dias') {
+        const dataFim = dataFinal || data;
+        validarData(dataFim);
+
+        if (dataFim < data) {
+            throw new Error('A data final não pode ser anterior à data inicial.');
+        }
+
+        return {
+            dataInicio: data,
+            horarioInicio: '00:00:00',
+            dataFim,
+            horarioFim: '23:59:59'
+        };
+    }
+
+    // ---- Por horário: um dia, de uma hora até outra
+    const horarioInicio = normalizarHorario(inicio);
+    const horarioFim = normalizarHorario(fim);
+
+    if (horarioInicio === horarioFim) {
+        throw new Error('O horário final deve ser diferente do inicial.');
+    }
+
+    // Hora final menor que a inicial = termina no dia seguinte
+    const dataFim = horarioFim < horarioInicio ? somarDias(data, 1) : data;
+
+    return { dataInicio: data, horarioInicio, dataFim, horarioFim };
+}
+
+// Expressões SQL que montam o começo e o fim de uma reserva já gravada
+// (data + horário juntos), para comparar períodos que atravessam a meia-noite.
+function inicioDaReserva(alias) {
+    return `DATEADD(DAY, DATEDIFF(DAY, 0, ${alias}.dataReserva),
+                    CAST(${alias}.horarioInicio AS DATETIME2(0)))`;
+}
+
+function fimDaReserva(alias) {
+    return `DATEADD(DAY, DATEDIFF(DAY, 0, ISNULL(${alias}.dataFim, ${alias}.dataReserva)),
+                    CAST(${alias}.horarioFim AS DATETIME2(0)))`;
+}
+
+// Descobre a tabela e a coluna da reserva a partir do tipo do recurso
 function obterTabela(tipo) {
     if (tipo === 'sala') {
         return { tabela: 'dbo.Sala', colunaReserva: 'codigoSala' };
@@ -43,27 +121,42 @@ function obterTabela(tipo) {
     throw new Error('Tipo de recurso inválido.');
 }
 
-export async function listarRecursosDisponiveis(tipo, data, inicio, fim) {
+// ---------------------------------------------------------------------
+// Recursos disponíveis em um período
+// dados: { tipo, modo, data, dataFinal, inicio, fim }
+// ---------------------------------------------------------------------
+export async function listarRecursosDisponiveis(dados) {
     const bd = await conectaBD();
-    const recurso = obterTabela(tipo);
-    const horarioInicio = normalizarHorario(inicio);
-    const horarioFim = normalizarHorario(fim);
-
-    validarIntervalo(horarioInicio, horarioFim);
-    validarData(data);
+    const recurso = obterTabela(dados.tipo);
+    const periodo = montarPeriodo(dados);
 
     const pedido = bd.request();
-    pedido.input('dataReserva', mssql.Date, data);
-    pedido.input('horarioInicio', mssql.VarChar(8), horarioInicio);
-    pedido.input('horarioFim', mssql.VarChar(8), horarioFim);
+    // Datas e horários vão como TEXTO e o próprio SQL converte.
+    // Assim não existe diferença de fuso horário entre Node e banco.
+    pedido.input(
+        'inicioPedido',
+        mssql.VarChar(19),
+        `${periodo.dataInicio} ${periodo.horarioInicio}`
+    );
+    pedido.input(
+        'fimPedido',
+        mssql.VarChar(19),
+        `${periodo.dataFim} ${periodo.horarioFim}`
+    );
 
+    // Um recurso está disponível quando:
+    //  - está ativo, E
+    //  - NÃO existe reserva dele que se sobreponha ao período pedido
+    //    (começo da reserva < fim do pedido E fim da reserva > começo do pedido).
+    // Só uma reserva com status 'Livre' libera o recurso; qualquer outro
+    // status (Reservado, Ocupado, Bloqueado) deixa o recurso indisponível.
     const resultado = await pedido.query(`
         SELECT
             r.codigo,
             r.nome,
             r.capacidade,
             r.localizacao,
-            '${tipo}' AS tipo
+            '${dados.tipo}' AS tipo
         FROM ${recurso.tabela} AS r
         WHERE r.ativo = 1
           AND NOT EXISTS (
@@ -72,12 +165,10 @@ export async function listarRecursosDisponiveis(tipo, data, inicio, fim) {
               INNER JOIN dbo.Status AS st
                   ON st.idStatus = reserva.idStatus
               WHERE reserva.${recurso.colunaReserva} = r.codigo
-                AND reserva.dataReserva = @dataReserva
-                AND reserva.horarioInicio < @horarioFim
-                AND reserva.horarioFim > @horarioInicio
-                -- Só uma reserva com status 'Livre' libera o recurso.
-                -- Qualquer outro status (Reservado, Ocupado, Bloqueado)
-                -- deixa o recurso indisponível naquele horário.
+                AND ${inicioDaReserva('reserva')}
+                        < CONVERT(DATETIME2(0), @fimPedido, 120)
+                AND ${fimDaReserva('reserva')}
+                        > CONVERT(DATETIME2(0), @inicioPedido, 120)
                 AND st.nomeStatus <> 'Livre'
           )
         ORDER BY r.nome;
@@ -86,6 +177,9 @@ export async function listarRecursosDisponiveis(tipo, data, inicio, fim) {
     return resultado.recordset;
 }
 
+// ---------------------------------------------------------------------
+// Cria uma reserva
+// ---------------------------------------------------------------------
 export async function criarReserva(dados) {
     const bd = await conectaBD();
 
@@ -93,20 +187,23 @@ export async function criarReserva(dados) {
         idUsuario,
         codigoSala,
         codigoLaboratorio,
+        modo,
         dataReserva,
+        dataFinal,
         horarioInicio,
         horarioFim
     } = dados;
 
-    if (
-        !idUsuario ||
-        !dataReserva ||
-        !horarioInicio ||
-        !horarioFim
-    ) {
+    // O idUsuario vem do token (controller). Se faltar, o login expirou.
+    if (!idUsuario || !dataReserva) {
         throw new Error('Preencha todos os dados da reserva.');
     }
 
+    if (modo !== 'dias' && (!horarioInicio || !horarioFim)) {
+        throw new Error('Preencha todos os dados da reserva.');
+    }
+
+    // Tem que vir uma sala OU um laboratório (nunca os dois, nem nenhum)
     const temSala = codigoSala !== undefined &&
         codigoSala !== null && codigoSala !== '';
 
@@ -123,13 +220,18 @@ export async function criarReserva(dados) {
         throw new Error('Código de recurso inválido.');
     }
 
-    const inicio = normalizarHorario(horarioInicio);
-    const fim = normalizarHorario(horarioFim);
-    validarIntervalo(inicio, fim);
-    validarData(dataReserva);
+    // Período real da reserva (já trata dia inteiro e virada de dia)
+    const periodo = montarPeriodo({
+        modo,
+        data: dataReserva,
+        dataFinal,
+        inicio: horarioInicio,
+        fim: horarioFim
+    });
 
     const coluna = temSala ? 'codigoSala' : 'codigoLaboratorio';
 
+    // Busca o id do status 'Reservado'
     const statusResultado = await bd.request()
         .input('nomeStatus', mssql.VarChar(50), 'Reservado')
         .query(`
@@ -144,66 +246,97 @@ export async function criarReserva(dados) {
 
     const idStatus = statusResultado.recordset[0].idStatus;
 
-    const pedido = bd.request();
-    pedido.input('codigo', mssql.Int, codigo);
-    pedido.input('dataReserva', mssql.Date, dataReserva);
-    pedido.input('horarioInicio', mssql.VarChar(8), inicio);
-    pedido.input('horarioFim', mssql.VarChar(8), fim);
+    const inicioPedido = `${periodo.dataInicio} ${periodo.horarioInicio}`;
+    const fimPedido = `${periodo.dataFim} ${periodo.horarioFim}`;
 
-    const conflito = await pedido.query(`
-        SELECT TOP 1 r.idReserva
-        FROM dbo.Reserva AS r
-        INNER JOIN dbo.Status AS st
-            ON st.idStatus = r.idStatus
-        WHERE r.${coluna} = @codigo
-          AND r.dataReserva = @dataReserva
-          AND r.horarioInicio < @horarioFim
-          AND r.horarioFim > @horarioInicio
-          -- Mesma regra da lista de disponíveis: só 'Livre' não bloqueia.
-          AND st.nomeStatus <> 'Livre';
-    `);
+    // ------------------------------------------------------------------
+    // CONFLITO DE HORÁRIO
+    // Conferir e gravar acontecem na MESMA transação. Com UPDLOCK e
+    // HOLDLOCK, se duas pessoas tentarem reservar o mesmo recurso ao
+    // mesmo tempo, a segunda espera a primeira terminar e então enxerga
+    // a reserva dela, recebendo o aviso de conflito em vez de duplicar.
+    // ------------------------------------------------------------------
+    const transacao = new mssql.Transaction(bd);
+    await transacao.begin();
 
-    if (conflito.recordset.length) {
-        throw new Error('Esse recurso já está reservado nesse horário.');
+    try {
+        const conflito = await new mssql.Request(transacao)
+            .input('codigo', mssql.Int, codigo)
+            .input('inicioPedido', mssql.VarChar(19), inicioPedido)
+            .input('fimPedido', mssql.VarChar(19), fimPedido)
+            .query(`
+                SELECT TOP 1 r.idReserva
+                FROM dbo.Reserva AS r WITH (UPDLOCK, HOLDLOCK)
+                INNER JOIN dbo.Status AS st
+                    ON st.idStatus = r.idStatus
+                WHERE r.${coluna} = @codigo
+                  AND ${inicioDaReserva('r')}
+                          < CONVERT(DATETIME2(0), @fimPedido, 120)
+                  AND ${fimDaReserva('r')}
+                          > CONVERT(DATETIME2(0), @inicioPedido, 120)
+                  AND st.nomeStatus <> 'Livre';
+            `);
+
+        if (conflito.recordset.length) {
+            throw new Error('Esse recurso já está reservado nesse período.');
+        }
+
+        const resultado = await new mssql.Request(transacao)
+            .input('idUsuario', mssql.Int, Number(idUsuario))
+            .input('codigo', mssql.Int, codigo)
+            .input('dataInicio', mssql.VarChar(10), periodo.dataInicio)
+            .input('dataFim', mssql.VarChar(10), periodo.dataFim)
+            .input('horarioInicio', mssql.VarChar(8), periodo.horarioInicio)
+            .input('horarioFim', mssql.VarChar(8), periodo.horarioFim)
+            .input('idStatus', mssql.Int, idStatus)
+            .query(`
+                INSERT INTO dbo.Reserva (
+                    idUsuario,
+                    codigoSala,
+                    codigoLaboratorio,
+                    dataReserva,
+                    dataFim,
+                    horarioInicio,
+                    horarioFim,
+                    idStatus
+                )
+                OUTPUT INSERTED.idReserva
+                VALUES (
+                    @idUsuario,
+                    ${temSala ? '@codigo' : 'NULL'},
+                    ${temLaboratorio ? '@codigo' : 'NULL'},
+                    CONVERT(date, @dataInicio, 23),
+                    CONVERT(date, @dataFim, 23),
+                    CONVERT(time, @horarioInicio, 108),
+                    CONVERT(time, @horarioFim, 108),
+                    @idStatus
+                );
+            `);
+
+        await transacao.commit();
+
+        return { idReserva: resultado.recordset[0].idReserva };
+    } catch (erro) {
+        // Qualquer erro desfaz tudo o que a transação tinha feito
+        try {
+            await transacao.rollback();
+        } catch {
+            // se o rollback também falhar, mostra o erro original
+        }
+
+        throw erro;
     }
-
-    const insercao = bd.request();
-    insercao.input('idUsuario', mssql.Int, Number(idUsuario));
-    insercao.input('dataReserva', mssql.Date, dataReserva);
-    insercao.input('horarioInicio', mssql.VarChar(8), inicio);
-    insercao.input('horarioFim', mssql.VarChar(8), fim);
-    insercao.input('idStatus', mssql.Int, idStatus);
-    insercao.input('codigo', mssql.Int, codigo);
-
-    const resultado = await insercao.query(`
-        INSERT INTO dbo.Reserva (
-            idUsuario,
-            codigoSala,
-            codigoLaboratorio,
-            dataReserva,
-            horarioInicio,
-            horarioFim,
-            idStatus
-        )
-        OUTPUT INSERTED.idReserva
-        VALUES (
-            @idUsuario,
-            ${temSala ? '@codigo' : 'NULL'},
-            ${temLaboratorio ? '@codigo' : 'NULL'},
-            @dataReserva,
-            @horarioInicio,
-            @horarioFim,
-            @idStatus
-        );
-    `);
-
-    return { idReserva: resultado.recordset[0].idReserva };
 }
 
+// ---------------------------------------------------------------------
+// Consulta de reservas (rota GET /reservas)
+// Filtros opcionais: tipo, codigo, data
+// (a tela "Consultar reservas" usa a rota /consulta-reservas)
+// ---------------------------------------------------------------------
 export async function listarReservas(filtros = {}) {
     const bd = await conectaBD();
 
-    const { tipo, codigo, data, inicio, fim } = filtros;
+    const { tipo, codigo, data } = filtros;
     const pedido = bd.request();
     const condicoes = [];
 
@@ -239,25 +372,12 @@ export async function listarReservas(filtros = {}) {
         }
     }
 
+    // Reservas que passam pela data informada
     if (data) {
-        pedido.input('dataReserva', mssql.Date, data);
-        condicoes.push('r.dataReserva = @dataReserva');
-    }
-
-    if (inicio || fim) {
-        if (!inicio || !fim) {
-            throw new Error('Informe o horário inicial e o horário final.');
-        }
-
-        const horarioInicio = normalizarHorario(inicio);
-        const horarioFim = normalizarHorario(fim);
-        validarIntervalo(horarioInicio, horarioFim);
-
-        pedido.input('horarioInicio', mssql.VarChar(8), horarioInicio);
-        pedido.input('horarioFim', mssql.VarChar(8), horarioFim);
-
-        condicoes.push('r.horarioInicio < @horarioFim');
-        condicoes.push('r.horarioFim > @horarioInicio');
+        validarData(data);
+        pedido.input('dataReserva', mssql.VarChar(10), data);
+        condicoes.push(`CONVERT(date, @dataReserva, 23) BETWEEN r.dataReserva
+                        AND ISNULL(r.dataFim, r.dataReserva)`);
     }
 
     const where = condicoes.length
@@ -286,7 +406,8 @@ export async function listarReservas(filtros = {}) {
                     THEN r.codigoLaboratorio
                 ELSE r.codigoSala
             END AS codigo,
-            r.dataReserva,
+            CONVERT(VARCHAR(10), r.dataReserva, 23) AS dataReserva,
+            CONVERT(VARCHAR(10), ISNULL(r.dataFim, r.dataReserva), 23) AS dataFim,
             CONVERT(VARCHAR(5), r.horarioInicio, 108) AS horarioInicio,
             CONVERT(VARCHAR(5), r.horarioFim, 108) AS horarioFim,
             r.idStatus,

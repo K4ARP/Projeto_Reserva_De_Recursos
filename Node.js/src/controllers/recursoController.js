@@ -82,6 +82,19 @@ export async function cadastrar(req, res) {
             });
         }
 
+        // Limites iguais aos das colunas do banco
+        if (
+            String(codigo).length > 9 ||
+            Number(capacidade) > 9999 ||
+            nome.trim().length > 100 ||
+            localizacao.trim().length > 150
+        ) {
+            return res.status(400).json({
+                mensagem:
+                    'Limites: código até 9 dígitos, capacidade até 9999, nome até 100 e localização até 150 caracteres.'
+            });
+        }
+
         const recurso = await cadastrarRecurso(tipo, {
             codigo,
             nome,
@@ -99,6 +112,13 @@ export async function cadastrar(req, res) {
         });
     } catch (erro) {
         console.error('Erro ao cadastrar recurso:', erro);
+
+        // Código repetido: a chave primária do banco recusa
+        if (/PRIMARY KEY|duplicate/i.test(erro.message)) {
+            return res.status(400).json({
+                mensagem: 'Já existe um recurso com esse código.'
+            });
+        }
 
         return res.status(400).json({
             mensagem: erro.message || 'Erro ao cadastrar recurso.'

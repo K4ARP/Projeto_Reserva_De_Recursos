@@ -18,22 +18,31 @@ import {
 export async function listarDisponiveis(req, res) {
     try {
         // Os parâmetros vêm na URL (query string)
-        const { tipo, data, inicio, fim } = req.query;
+        //   modo = 'horario' (um dia, de uma hora a outra)  ou
+        //          'dias'    (do dia inicial ao final, dia inteiro)
+        const { tipo, data, dataFinal, inicio, fim } = req.query;
+        const modo = req.query.modo === 'dias' ? 'dias' : 'horario';
 
-        // Todos são obrigatórios; se faltar algum, responde 400 (pedido inválido)
-        if (!tipo || !data || !inicio || !fim) {
+        // Campos obrigatórios de cada modo; se faltar algum, responde 400
+        const faltando = modo === 'dias'
+            ? !tipo || !data || !dataFinal
+            : !tipo || !data || !inicio || !fim;
+
+        if (faltando) {
             return res.status(400).json({
-                mensagem: 'Informe o tipo, a data e os horários da consulta.'
+                mensagem: 'Informe o tipo, as datas e os horários da consulta.'
             });
         }
 
         // O model faz o SELECT no banco
-        const recursos = await listarRecursosDisponiveis(
+        const recursos = await listarRecursosDisponiveis({
             tipo,
+            modo,
             data,
+            dataFinal,
             inicio,
             fim
-        );
+        });
 
         return res.status(200).json(recursos);
     } catch (erro) {
@@ -58,7 +67,9 @@ export async function cadastrarReserva(req, res) {
         const {
             tipo,
             codigo,
+            modo,
             data,
+            dataFinal,
             inicio,
             fim,
             codigoSala,
@@ -92,7 +103,10 @@ export async function cadastrarReserva(req, res) {
             codigoLaboratorio: tipo === 'laboratorio'
                 ? (codigoLaboratorio ?? codigo)
                 : codigoLaboratorio,
+            // 'dias' = dia inteiro do dia inicial ao final; senão, por horário
+            modo: modo === 'dias' ? 'dias' : 'horario',
             dataReserva: dataReserva ?? data,
+            dataFinal,
             horarioInicio: horarioInicio ?? inicio,
             horarioFim: horarioFim ?? fim
         };
