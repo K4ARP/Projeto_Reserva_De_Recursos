@@ -1,37 +1,65 @@
-// frontend/app/consultar-reservas/page.tsx  (REESCRITO)
+// frontend/app/consultar-reservas/page.tsx
 //
-// Página de CONSULTAR RESERVAS.
-// Problemas da versão antiga que foram corrigidos:
-//  - chamava /reservas sem enviar o token (o Node respondia 401);
-//  - enviava filtros que o Node não entende (horario/usuario/recurso).
-// Agora chama GET /consulta-reservas, a rota feita para esta tela, com o
-// token e os filtros: data, horario, usuario e tipoRecurso.
+// Página de CONSULTAR RESERVAS, com os filtros pedidos no enunciado:
+// data ou período, horário, usuário, recurso (código ou nome),
+// tipo de recurso.// Chama GET /consulta-reservas, que exige o token de login.
+// A consulta é SEMPRE das reservas do usuário logado: o Node descobre quem
+// é pelo token, então não existe campo para digitar outro usuário.
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import LayoutPainel from '../components/LayoutPainel';
 import styles from '../components/painel.module.css';
-import { API, obterToken, lerResposta, extrairLista } from '../lib/api';
+import { API, LIMITES, obterToken, lerResposta, extrairLista } from '../lib/api';
 
 // Formato de cada reserva devolvida pelo Node
 type Reserva = {
   idReserva: number;
   nomeUsuario: string;
   dataReserva: string;
+  dataFim: string;
   horarioInicio: string;
   horarioFim: string;
   nomeStatus: string;
   tipoRecurso: string;
+  codigoRecurso: number;
   nomeRecurso: string;
 };
 
-const filtrosVazios = { data: '', horario: '', usuario: '', tipo: '' };
 
-// Transforma "2026-10-30T00:00:00.000Z" em "30/10/2026"
+const filtrosVazios = {
+  data: '',
+  dataFinal: '',
+  horario: '',
+  recurso: '',
+  tipo: '',
+};
+
+// Transforma "2026-10-30" em "30/10/2026"
 function formatarData(valor?: string) {
   if (!valor) return '—';
   const [ano, mes, dia] = valor.substring(0, 10).split('-');
   return ano && mes && dia ? `${dia}/${mes}/${ano}` : valor;
+}
+
+// Período da reserva: um dia ("10/11/2026") ou vários dias
+// ("10/11/2026 até 14/11/2026")
+function formatarPeriodo(r: Reserva) {
+  const inicio = formatarData(r.dataReserva);
+  return r.dataFim && r.dataFim !== r.dataReserva
+    ? `${inicio} até ${formatarData(r.dataFim)}`
+    : inicio;
+}
+
+// Horário da reserva: "Dia inteiro", "08:00 às 10:00" ou, quando vira a
+// noite, "23:00 às 05:00 (dia seguinte)"
+function formatarHorario(r: Reserva) {
+  if (r.horarioInicio === '00:00' && r.horarioFim === '23:59') {
+    return 'Dia inteiro';
+  }
+
+  const viraNoite = r.dataFim && r.dataFim > r.dataReserva;
+  return `${r.horarioInicio} às ${r.horarioFim}${viraNoite ? ' (dia seguinte)' : ''}`;
 }
 
 export default function ConsultarReservas() {
@@ -40,6 +68,21 @@ export default function ConsultarReservas() {
   const [mensagem, setMensagem] = useState('');
   const [carregando, setCarregando] = useState(false);
   const [pesquisou, setPesquisou] = useState(false);
+
+  // Nome do usuário logado (só para exibir, o Node usa o token)
+  const [usuarioLogado, setUsuarioLogado] = useState('');
+
+  useEffect(() => {
+    try {
+      const salvo = localStorage.getItem('usuario');
+      if (salvo) {
+        const usuario = JSON.parse(salvo);
+        setUsuarioLogado(usuario.nomeCompleto || usuario.login || '');
+      }
+    } catch {
+      setUsuarioLogado('');
+    }
+  }, []);
 
   // Atualiza um filtro
   function alterar(campo: string, valor: string) {
@@ -58,6 +101,17 @@ export default function ConsultarReservas() {
       return;
     }
 
+    // Período: a data final precisa de uma data inicial
+    if (filtros.dataFinal && !filtros.data) {
+      setMensagem('Informe a data inicial do período.');
+      return;
+    }
+
+    if (filtros.dataFinal && filtros.dataFinal < filtros.data) {
+      setMensagem('A data final não pode ser anterior à data inicial.');
+      return;
+    }
+
     setCarregando(true);
     setPesquisou(true);
 
@@ -65,13 +119,17 @@ export default function ConsultarReservas() {
       // Só envia os filtros preenchidos
       const parametros = new URLSearchParams();
       if (filtros.data) parametros.set('data', filtros.data);
+      if (filtros.dataFinal) parametros.set('dataFinal', filtros.dataFinal);
       if (filtros.horario) parametros.set('horario', filtros.horario);
-      if (filtros.usuario.trim()) parametros.set('usuario', filtros.usuario.trim());
+      if (filtros.recurso.trim()) parametros.set('recurso', filtros.recurso.trim());
       if (filtros.tipo) parametros.set('tipoRecurso', filtros.tipo);
 
       const resposta = await fetch(
         `${API}/consulta-reservas?${parametros.toString()}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        }
       );
 
       const dados = await lerResposta(resposta);
@@ -104,12 +162,26 @@ export default function ConsultarReservas() {
         <form onSubmit={pesquisar}>
           <div className={styles.formulario}>
             <div className={styles.campo}>
-              <label htmlFor="data">Data</label>
+              <label htmlFor="data">Data (ou início do período)</label>
               <input
                 id="data"
                 type="date"
+                min="2000-01-01"
+                max="2100-12-31"
                 value={filtros.data}
                 onChange={(e) => alterar('data', e.target.value)}
+              />
+            </div>
+
+            <div className={styles.campo}>
+              <label htmlFor="dataFinal">Data final do período</label>
+              <input
+                id="dataFinal"
+                type="date"
+                min="2000-01-01"
+                max="2100-12-31"
+                value={filtros.dataFinal}
+                onChange={(e) => alterar('dataFinal', e.target.value)}
               />
             </div>
 
@@ -123,13 +195,25 @@ export default function ConsultarReservas() {
               />
             </div>
 
+            {/* Preenchido automaticamente pelo login; não dá para editar */}
             <div className={styles.campo}>
               <label htmlFor="usuario">Usuário</label>
               <input
                 id="usuario"
-                placeholder="Nome do usuário"
-                value={filtros.usuario}
-                onChange={(e) => alterar('usuario', e.target.value)}
+                value={usuarioLogado || 'Faça login para consultar'}
+                readOnly
+                disabled
+              />
+            </div>
+
+            <div className={styles.campo}>
+              <label htmlFor="recurso">Recurso (código ou nome)</label>
+              <input
+                id="recurso"
+                placeholder="Ex: 201 ou Laboratório 1"
+                maxLength={LIMITES.nomeRecurso}
+                value={filtros.recurso}
+                onChange={(e) => alterar('recurso', e.target.value)}
               />
             </div>
 
@@ -145,6 +229,7 @@ export default function ConsultarReservas() {
                 <option value="laboratorio">Laboratório</option>
               </select>
             </div>
+
           </div>
 
           <button type="submit" className={styles.primario} disabled={carregando}>
@@ -163,11 +248,11 @@ export default function ConsultarReservas() {
           <table>
             <thead>
               <tr>
-                <th>Data</th>
+                <th>Data / período</th>
                 <th>Horário</th>
+                <th>Código</th>
                 <th>Recurso</th>
                 <th>Tipo</th>
-                <th>Usuário</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -175,20 +260,18 @@ export default function ConsultarReservas() {
             <tbody>
               {reservas.map((r) => (
                 <tr key={r.idReserva}>
-                  <td>{formatarData(r.dataReserva)}</td>
-                  <td>
-                    {r.horarioInicio} às {r.horarioFim}
-                  </td>
+                  <td>{formatarPeriodo(r)}</td>
+                  <td>{formatarHorario(r)}</td>
+                  <td>{r.codigoRecurso}</td>
                   <td>{r.nomeRecurso}</td>
                   <td>{r.tipoRecurso}</td>
-                  <td>{r.nomeUsuario}</td>
                   <td>{r.nomeStatus}</td>
                 </tr>
               ))}
 
               {reservas.length === 0 && (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={5}>
                     {carregando
                       ? 'Carregando reservas...'
                       : pesquisou && !mensagem
@@ -204,3 +287,4 @@ export default function ConsultarReservas() {
     </LayoutPainel>
   );
 }
+

@@ -1,10 +1,11 @@
-/* frontend/app/components/painel.module.css  (ARQUIVO NOVO)
-   Estilos que antes ficavam dentro da página principal (<style jsx>).
-   Agora são compartilhados por todas as páginas do painel.
+/* frontend/app/components/painel.module.css
+   Estilos compartilhados por TODAS as páginas do painel (início, reservar,
+   consultar, cadastrar recurso/sala/laboratório/status).
+   Usa o MESMO visual da tela de cadastro de usuário:
+   fundo preto, bordas brancas/cinza, campos #121212 e botão azul #0070f3.
    É um "CSS Module": os nomes das classes valem só para quem importa
    este arquivo, então não há conflito com as outras páginas. */
 
-/* Faz todo elemento da página contar a borda no tamanho */
 .pagina,
 .pagina * {
   box-sizing: border-box;
@@ -14,56 +15,70 @@
 .pagina {
   min-height: 100vh;
   display: flex;
-  background: #f3f5f9;
-  color: #202938;
-  font-family: Arial, Helvetica, sans-serif;
+  background: #000000;
+  color: #ffffff;
+  font-family: Arial, sans-serif;
 }
 
 /* ---------- Menu lateral ---------- */
 .menu {
   width: 250px;
   min-height: 100vh;
-  padding: 26px 18px;
-  background: #172554;
-  color: white;
+  padding: 26px 16px;
+  background: #000000;
+  border-right: 1px solid #333333;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   flex-shrink: 0;
 }
 
 .menu h2 {
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1.4;
-  margin: 0 0 24px;
+  margin: 0 0 22px;
+  padding: 0 8px;
+  color: #ffffff;
 }
 
-/* Links e botão do menu têm a mesma aparência */
 .menu a,
 .menu button {
   display: block;
   border: 0;
-  padding: 13px 14px;
-  border-radius: 8px;
-  color: #e5e7eb;
+  padding: 12px 14px;
+  border-radius: 6px;
+  color: #cccccc;
   background: transparent;
   text-align: left;
   text-decoration: none;
   font-size: 14px;
   cursor: pointer;
+  transition: background 0.2s, color 0.2s;
 }
 
 .menu a:hover,
 .menu button:hover {
-  background: #293b70;
+  background: #121212;
+  color: #ffffff;
 }
 
-/* Botão Sair fica no rodapé do menu */
+/* Item da página em que o usuário está */
+.menu a.ativo {
+  background: #0070f3;
+  color: #ffffff;
+  font-weight: bold;
+}
+
 .menu button.sair {
   margin-top: auto;
-  background: #991b1b;
-  color: white;
+  border: 1px solid #7f2929;
+  background: #2a1111;
+  color: #fca5a5;
   text-align: center;
+}
+
+.menu button.sair:hover {
+  background: #3b1515;
 }
 
 /* ---------- Área de conteúdo ---------- */
@@ -74,39 +89,46 @@
 }
 
 .cabecalho {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   margin-bottom: 26px;
 }
 
 .cabecalho h1 {
-  margin: 0 0 8px;
-  font-size: 28px;
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: bold;
+  color: #ffffff;
 }
 
 .cabecalho p {
   margin: 0;
-  color: #64748b;
+  color: #aaaaaa;
+  font-size: 14px;
 }
 
+/* Cartão principal (mesma borda branca do cadastro de usuário) */
 .painel {
-  background: white;
-  padding: 26px;
-  border-radius: 14px;
-  box-shadow: 0 4px 16px #0f172a0c;
+  background: #000000;
+  border: 1px solid #ffffff;
+  border-radius: 8px;
+  padding: 30px;
+  box-shadow: 0 0 15px rgba(255, 255, 255, 0.05);
 }
 
 .painel h2 {
   margin-top: 0;
   font-size: 20px;
+  color: #ffffff;
+}
+
+.painel p {
+  color: #aaaaaa;
 }
 
 /* ---------- Cartões da página inicial ---------- */
 .cartoes {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 16px;
   margin-top: 25px;
 }
 
@@ -114,94 +136,119 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 12px;
-  min-height: 150px;
+  gap: 10px;
+  min-height: 140px;
   padding: 20px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
+  background: #121212;
+  border: 1px solid #333333;
+  border-radius: 6px;
   text-align: left;
   text-decoration: none;
-  cursor: pointer;
-  color: #1e293b;
+  color: #ffffff;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .cartao:hover {
-  border-color: #647de0;
-  background: #f1f5ff;
+  border-color: #0070f3;
+  box-shadow: 0 0 0 2px rgba(0, 112, 243, 0.25);
 }
 
 .cartao span {
-  font-size: 26px;
-  color: #4338ca;
+  font-size: 24px;
+  color: #0070f3;
 }
 
 .cartao small {
-  color: #64748b;
+  color: #aaaaaa;
   line-height: 1.5;
 }
 
 /* ---------- Formulários ---------- */
 .formulario {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 18px;
-  align-items: end;
-  margin: 20px 0 28px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  align-items: start;
+  margin: 20px 0 24px;
 }
 
 .campo {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  min-width: 0;
 }
 
 .campo label {
   font-size: 14px;
-  font-weight: 600;
+  color: #ffffff;
+  font-weight: 500;
 }
 
 .campo input,
 .campo select {
   width: 100%;
   min-width: 0;
-  padding: 12px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: white;
-  color: #1e293b;
-  font: inherit;
+  padding: 12px 14px;
+  background: #121212;
+  border: 1px solid #333333;
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .campo input:focus,
 .campo select:focus {
-  outline: 2px solid #c7d2fe;
-  border-color: #6366f1;
+  border-color: #0070f3;
+  box-shadow: 0 0 0 2px rgba(0, 112, 243, 0.25);
+}
+
+/* Campo travado (ex.: usuário logado) */
+.campo input:disabled,
+.campo select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.campo input::placeholder {
+  color: #666666;
+}
+
+/* Ícone do calendário/relógio branco no fundo escuro */
+.campo input[type='date']::-webkit-calendar-picker-indicator,
+.campo input[type='time']::-webkit-calendar-picker-indicator {
+  filter: invert(1);
 }
 
 .campo small {
-  color: #b45309;
+  color: #fbbf24;
   line-height: 1.4;
+  font-size: 13px;
 }
 
 /* ---------- Botões ---------- */
 .primario,
 .secundario {
-  padding: 12px 16px;
-  border: 0;
-  border-radius: 8px;
+  padding: 12px 18px;
+  border: none;
+  border-radius: 6px;
   cursor: pointer;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: bold;
   min-height: 42px;
+  transition: background 0.2s;
 }
 
 .primario {
-  background: #4338ca;
-  color: white;
+  background: #0070f3;
+  color: #ffffff;
 }
 
 .primario:hover {
-  background: #3730a3;
+  background: #005bb5;
 }
 
 .primario:disabled {
@@ -210,23 +257,35 @@
 }
 
 .secundario {
-  background: #e2e8f0;
-  color: #1e293b;
+  background: #121212;
+  color: #ffffff;
+  border: 1px solid #333333;
 }
 
 .secundario:hover {
-  background: #cbd5e1;
+  border-color: #ffffff;
 }
 
-/* ---------- Mensagem de aviso/erro ---------- */
+/* ---------- Mensagens (mesmo estilo do cadastro de usuário) ---------- */
 .mensagem {
   margin-bottom: 20px;
-  padding: 14px 16px;
-  border-radius: 8px;
-  background: #eef2ff;
-  border: 1px solid #c7d2fe;
-  color: #312e81;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+.erro {
+  color: #fca5a5;
+  background: #2a1111;
+  border: 1px solid #7f2929;
+}
+
+.sucesso {
+  color: #86efac;
+  background: #0f2a17;
+  border: 1px solid #1f7a3a;
 }
 
 /* ---------- Listas e tabelas ---------- */
@@ -257,15 +316,17 @@
 
 .tabelaContainer th,
 .tabelaContainer td {
-  padding: 13px 12px;
-  border-bottom: 1px solid #e2e8f0;
+  padding: 12px;
+  border-bottom: 1px solid #333333;
   text-align: left;
   font-size: 14px;
+  color: #ffffff;
 }
 
 .tabelaContainer th {
-  background: #f8fafc;
-  color: #475569;
+  background: #121212;
+  color: #aaaaaa;
+  font-weight: 600;
 }
 
 /* ---------- Celular / tela pequena ---------- */
@@ -277,6 +338,8 @@
   .menu {
     width: 100%;
     min-height: auto;
+    border-right: 0;
+    border-bottom: 1px solid #333333;
   }
 
   .menu button.sair {
@@ -288,10 +351,10 @@
   }
 
   .painel {
-    padding: 18px;
+    padding: 20px;
   }
 
   .cabecalho h1 {
-    font-size: 23px;
+    font-size: 22px;
   }
 }

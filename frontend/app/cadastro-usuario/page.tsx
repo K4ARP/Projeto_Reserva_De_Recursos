@@ -4,6 +4,13 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import {
+  LIMITES,
+  mascararCpf,
+  mascararCelular,
+  somenteDigitos,
+  dataDeHoje,
+} from '../lib/api';
 
 export default function CadastrarUsuario() {
   const router = useRouter();
@@ -24,7 +31,14 @@ export default function CadastrarUsuario() {
   const [tipoMensagem, setTipoMensagem] = useState('');
 
   function handleChange(event) {
-    const { name, value } = event.target;
+    const { name } = event.target;
+    let { value } = event.target;
+
+    // Máscaras e limites: o campo nunca passa do tamanho do banco
+    if (name === 'cpf') value = mascararCpf(value);
+    else if (name === 'celular') value = mascararCelular(value);
+    else if (name in LIMITES) value = value.slice(0, LIMITES[name as keyof typeof LIMITES]);
+    else if (name === 'confirmarSenha') value = value.slice(0, LIMITES.senha);
 
     setFormData((anterior) => ({
       ...anterior,
@@ -39,6 +53,29 @@ export default function CadastrarUsuario() {
     event.preventDefault();
     setMensagem('');
     setTipoMensagem('');
+
+    // Validações antes de enviar para o Node
+    if (somenteDigitos(formData.cpf).length !== 11) {
+      setTipoMensagem('erro');
+      setMensagem('CPF inválido. Informe os 11 números.');
+      return;
+    }
+
+    const digitosCelular = somenteDigitos(formData.celular).length;
+    if (digitosCelular < 10 || digitosCelular > 11) {
+      setTipoMensagem('erro');
+      setMensagem('Celular inválido. Informe o DDD e o número.');
+      return;
+    }
+
+    if (
+      formData.dataAniversario < '1900-01-01' ||
+      formData.dataAniversario > dataDeHoje()
+    ) {
+      setTipoMensagem('erro');
+      setMensagem('Data de nascimento inválida.');
+      return;
+    }
 
     if (formData.senha !== formData.confirmarSenha) {
       setTipoMensagem('erro');
@@ -113,6 +150,8 @@ export default function CadastrarUsuario() {
               <input
                 id="cpf"
                 name="cpf"
+                maxLength={LIMITES.cpf}
+                inputMode="numeric"
                 type="text"
                 placeholder="000.000.000-00"
                 value={formData.cpf}
@@ -126,6 +165,7 @@ export default function CadastrarUsuario() {
               <input
                 id="nomeCompleto"
                 name="nomeCompleto"
+                maxLength={LIMITES.nomeCompleto}
                 type="text"
                 placeholder="Digite o nome completo"
                 value={formData.nomeCompleto}
@@ -139,6 +179,8 @@ export default function CadastrarUsuario() {
               <input
                 id="dataAniversario"
                 name="dataAniversario"
+                min="1900-01-01"
+                max={dataDeHoje()}
                 type="date"
                 value={formData.dataAniversario}
                 onChange={handleChange}
@@ -151,6 +193,8 @@ export default function CadastrarUsuario() {
               <input
                 id="celular"
                 name="celular"
+                maxLength={LIMITES.celular}
+                inputMode="numeric"
                 type="tel"
                 placeholder="(00) 00000-0000"
                 value={formData.celular}
@@ -164,6 +208,7 @@ export default function CadastrarUsuario() {
               <input
                 id="email"
                 name="email"
+                maxLength={LIMITES.email}
                 type="email"
                 placeholder="seuemail@exemplo.com"
                 value={formData.email}
@@ -177,6 +222,7 @@ export default function CadastrarUsuario() {
               <input
                 id="login"
                 name="login"
+                maxLength={LIMITES.login}
                 type="text"
                 placeholder="Crie um usuário para login"
                 value={formData.login}
@@ -190,6 +236,7 @@ export default function CadastrarUsuario() {
               <input
                 id="senha"
                 name="senha"
+                maxLength={LIMITES.senha}
                 type="password"
                 placeholder="Crie uma senha"
                 autoComplete="new-password"
@@ -204,6 +251,7 @@ export default function CadastrarUsuario() {
               <input
                 id="confirmarSenha"
                 name="confirmarSenha"
+                maxLength={LIMITES.senha}
                 type="password"
                 placeholder="Repita a senha"
                 autoComplete="new-password"

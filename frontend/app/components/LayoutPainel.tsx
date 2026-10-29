@@ -1,4 +1,4 @@
-// frontend/app/components/LayoutPainel.tsx  (ARQUIVO NOVO)
+// frontend/app/components/LayoutPainel.tsx
 //
 // "Moldura" padrão das páginas: menu lateral + título + faixa de mensagem.
 // Cada página só informa o título, a mensagem e o conteúdo (children).
@@ -12,6 +12,11 @@ type Props = {
   children: ReactNode; // conteúdo específico de cada página
 };
 
+// Palavras que indicam que a mensagem é um erro/aviso (fica vermelha).
+// Qualquer outra mensagem é tratada como sucesso (fica verde).
+const PADRAO_ERRO =
+  /erro|não foi|não é|não pode|inválid|preencha|já existe|já está|faça login|deve|escolha|informe|selecione|nenhum|limites/i;
+
 export default function LayoutPainel({ titulo, mensagem, children }: Props) {
   return (
     <main className={styles.pagina}>
@@ -19,14 +24,18 @@ export default function LayoutPainel({ titulo, mensagem, children }: Props) {
 
       <section className={styles.conteudo}>
         <header className={styles.cabecalho}>
-          <div>
-            <h1>{titulo}</h1>
-            <p>Sistema de reserva de salas de aula e laboratórios</p>
-          </div>
+          <h1>{titulo}</h1>
+          <p>Sistema de reserva de salas de aula e laboratórios</p>
         </header>
 
         {mensagem && (
-          <div className={styles.mensagem} role="status">
+          <div
+            className={`${styles.mensagem} ${
+              PADRAO_ERRO.test(mensagem) ? styles.erro : styles.sucesso
+            }`}
+            role="status"
+            aria-live="polite"
+          >
             {mensagem}
           </div>
         )}

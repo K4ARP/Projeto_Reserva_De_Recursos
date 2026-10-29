@@ -169,6 +169,7 @@ export default function Login() {
               id="login"
               type="text"
               name="login"
+              maxLength={50}
               value={formData.login}
               onChange={handleChange}
               placeholder="Digite seu login"
@@ -203,6 +204,7 @@ export default function Login() {
               id="senha"
               type="password"
               name="senha"
+              maxLength={72}
               value={formData.senha}
               onChange={handleChange}
               placeholder="Digite sua senha"

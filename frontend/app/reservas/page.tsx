@@ -1,15 +1,23 @@
-// frontend/app/reservas/page.tsx  (REESCRITO)
+// frontend/app/reservas/page.tsx
 //
-// Página de FAZER UMA RESERVA (antes esse código ficava dentro da página
-// principal, e esta página era uma consulta antiga que nem funcionava).
+// Página de FAZER UMA RESERVA. Há dois tipos de reserva:
+//
+//  POR HORÁRIO: um dia, de uma hora até outra.
+//     Se a hora final for MENOR que a inicial, a reserva termina no dia
+//     seguinte (ex.: 23:00 até 05:00 = da noite até a madrugada).
+//
+//  POR DIAS: do dia inicial ao dia final (inclusive), DIA INTEIRO.
+//     Aqui não faz sentido escolher horário, então os campos de hora
+//     não aparecem.
 //
 // Como funciona:
-//  1. O usuário escolhe tipo (sala/laboratório), data, início e fim.
-//  2. A página pergunta ao Node quais recursos estão LIVRES nesse horário
+//  1. O usuário escolhe o tipo de recurso, o tipo de reserva e o período.
+//  2. A página pergunta ao Node quais recursos estão LIVRES nesse período
 //     (GET /reservas/disponiveis). Só eles aparecem na lista.
-//  3. Ao clicar em Reservar, envia POST /reservas com o token de login.
+//  3. Ao clicar em Reservar, envia POST /reservas com o token de login
+//     (o Node descobre quem é o usuário pelo token).
 //  4. Depois de reservar, a lista é buscada de novo: o recurso reservado
-//     some da lista, porque já não está mais disponível nesse horário.
+//     some da lista, porque não está mais disponível nesse período.
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
@@ -18,6 +26,7 @@ import styles from '../components/painel.module.css';
 import { API, obterToken, lerResposta, extrairLista } from '../lib/api';
 
 type TipoRecurso = 'sala' | 'laboratorio';
+type ModoReserva = 'horario' | 'dias';
 
 // Formato de cada recurso devolvido por /reservas/disponiveis
 type RecursoDisponivel = {
@@ -49,12 +58,22 @@ function validarData(data: string) {
   return '';
 }
 
+// "2026-11-10" -> "11/11/2026" (o dia seguinte, para o aviso da madrugada)
+function diaSeguinteFormatado(data: string) {
+  const d = new Date(`${data}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  const [ano, mes, dia] = d.toISOString().slice(0, 10).split('-');
+  return `${dia}/${mes}/${ano}`;
+}
+
 export default function Reservas() {
   // Campos do formulário
   const [form, setForm] = useState({
     tipo: 'sala' as TipoRecurso,
+    modo: 'horario' as ModoReserva,
     codigo: '',
     data: '',
+    dataFinal: '',
     inicio: '',
     fim: '',
   });
@@ -86,30 +105,85 @@ export default function Reservas() {
 
   // Atualiza um campo do formulário
   function alterar(campo: string, valor: string) {
-    setForm((anterior) => ({ ...anterior, [campo]: valor }));
+    setForm((anterior) => {
+      const novo = { ...anterior, [campo]: valor };
+
+      // Trocar o tipo de reserva limpa o recurso escolhido
+      if (campo === 'modo') novo.codigo = '';
+
+      // Se a data inicial passar da final, a final acompanha
+      if (campo === 'data' && novo.dataFinal && novo.dataFinal < valor) {
+        novo.dataFinal = valor;
+      }
+
+      return novo;
+    });
   }
 
-  // Busca os recursos livres sempre que tipo, data ou horários mudam
+  // Madrugada: reserva por horário com hora final menor que a inicial
+  const viraNoite =
+    form.modo === 'horario' && !!form.inicio && !!form.fim && form.fim < form.inicio;
+
+  // Parâmetros que descrevem o período escolhido (iguais para consultar e reservar)
+  function montarParametros() {
+    const parametros: Record<string, string> = {
+      tipo: form.tipo,
+      modo: form.modo,
+      data: form.data,
+    };
+
+    if (form.modo === 'dias') {
+      parametros.dataFinal = form.dataFinal;
+    } else {
+      parametros.inicio = form.inicio;
+      parametros.fim = form.fim;
+    }
+
+    return parametros;
+  }
+
+  // Confere o período. Devolve o texto do erro, ou '' se estiver tudo certo.
+  function validarPeriodo() {
+    if (!form.data) return 'Informe a data.';
+
+    const erroData = validarData(form.data);
+    if (erroData) return erroData;
+
+    if (form.modo === 'dias') {
+      if (!form.dataFinal) return 'Informe a data final.';
+
+      const erroFinal = validarData(form.dataFinal);
+      if (erroFinal) return erroFinal;
+
+      if (form.dataFinal < form.data) {
+        return 'A data final não pode ser anterior à data inicial.';
+      }
+
+      return '';
+    }
+
+    if (!form.inicio || !form.fim) return 'Informe o horário inicial e o final.';
+
+    if (form.inicio === form.fim) {
+      return 'O horário final deve ser diferente do inicial.';
+    }
+
+    return '';
+  }
+
+  // Busca os recursos livres sempre que o período muda
   // (e também quando "atualizacao" muda, depois de uma reserva).
   useEffect(() => {
-    // Falta informação: não há o que buscar ainda
-    if (!form.data || !form.inicio || !form.fim) {
-      setDisponiveis([]);
-      setAviso('Informe a data e os horários para ver os recursos livres.');
-      return;
-    }
+    const erroPeriodo = validarPeriodo();
 
-    // Data com ano errado (ex.: 22026) ou no passado: não consulta o Node
-    const erroData = validarData(form.data);
-    if (erroData) {
+    // Período incompleto ou inválido: não consulta o Node
+    if (erroPeriodo) {
       setDisponiveis([]);
-      setAviso(erroData);
-      return;
-    }
-
-    if (form.inicio >= form.fim) {
-      setDisponiveis([]);
-      setAviso('O horário final deve ser posterior ao inicial.');
+      setAviso(
+        erroPeriodo.startsWith('Informe')
+          ? 'Informe o período da reserva para ver os recursos livres.'
+          : erroPeriodo
+      );
       return;
     }
 
@@ -121,12 +195,7 @@ export default function Reservas() {
       setAviso('');
 
       try {
-        const parametros = new URLSearchParams({
-          tipo: form.tipo,
-          data: form.data,
-          inicio: form.inicio,
-          fim: form.fim,
-        });
+        const parametros = new URLSearchParams(montarParametros());
 
         // cache: 'no-store' = sempre buscar o dado atual no Node,
         // para o recurso recém-reservado sumir da lista.
@@ -149,7 +218,7 @@ export default function Reservas() {
         );
 
         if (lista.length === 0) {
-          setAviso('Nenhum recurso livre nesse dia e horário.');
+          setAviso('Nenhum recurso livre nesse período.');
         }
       } catch (erro) {
         if (cancelado) return;
@@ -169,22 +238,30 @@ export default function Reservas() {
     return () => {
       cancelado = true;
     };
-  }, [form.tipo, form.data, form.inicio, form.fim, atualizacao]);
+  }, [
+    form.tipo,
+    form.modo,
+    form.data,
+    form.dataFinal,
+    form.inicio,
+    form.fim,
+    atualizacao,
+  ]);
 
   // Envia a reserva para o Node
   async function enviarReserva(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault();
     setMensagem('');
 
-    if (!form.codigo || !form.data || !form.inicio || !form.fim) {
-      setMensagem('Preencha todos os campos da reserva.');
+    if (!form.codigo) {
+      setMensagem('Selecione o recurso que deseja reservar.');
       return;
     }
 
-    // Confere a data antes de enviar
-    const erroData = validarData(form.data);
-    if (erroData) {
-      setMensagem(erroData);
+    // Confere o período antes de enviar
+    const erroPeriodo = validarPeriodo();
+    if (erroPeriodo) {
+      setMensagem(erroPeriodo);
       return;
     }
 
@@ -204,13 +281,7 @@ export default function Reservas() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          tipo: form.tipo,
-          codigo: form.codigo,
-          data: form.data,
-          inicio: form.inicio,
-          fim: form.fim,
-        }),
+        body: JSON.stringify({ ...montarParametros(), codigo: form.codigo }),
       });
 
       const dados = await lerResposta(resposta);
@@ -262,7 +333,21 @@ export default function Reservas() {
             </div>
 
             <div className={styles.campo}>
-              <label htmlFor="data">Data</label>
+              <label htmlFor="modo">Tipo de reserva</label>
+              <select
+                id="modo"
+                value={form.modo}
+                onChange={(e) => alterar('modo', e.target.value)}
+              >
+                <option value="horario">Por horário (um dia)</option>
+                <option value="dias">Por dias (dia inteiro)</option>
+              </select>
+            </div>
+
+            <div className={styles.campo}>
+              <label htmlFor="data">
+                {form.modo === 'dias' ? 'Data inicial' : 'Data'}
+              </label>
               <input
                 id="data"
                 type="date"
@@ -273,25 +358,51 @@ export default function Reservas() {
               />
             </div>
 
-            <div className={styles.campo}>
-              <label htmlFor="inicio">Início</label>
-              <input
-                id="inicio"
-                type="time"
-                value={form.inicio}
-                onChange={(e) => alterar('inicio', e.target.value)}
-              />
-            </div>
+            {/* Por dias: data final (sem horários, a reserva é de dia inteiro) */}
+            {form.modo === 'dias' && (
+              <div className={styles.campo}>
+                <label htmlFor="dataFinal">Data final</label>
+                <input
+                  id="dataFinal"
+                  type="date"
+                  min={form.data || dataDeHoje()}
+                  max="2100-12-31"
+                  value={form.dataFinal}
+                  onChange={(e) => alterar('dataFinal', e.target.value)}
+                />
+                <small>Reserva de dia inteiro, da data inicial até a final.</small>
+              </div>
+            )}
 
-            <div className={styles.campo}>
-              <label htmlFor="fim">Fim</label>
-              <input
-                id="fim"
-                type="time"
-                value={form.fim}
-                onChange={(e) => alterar('fim', e.target.value)}
-              />
-            </div>
+            {/* Por horário: hora inicial e final */}
+            {form.modo === 'horario' && (
+              <>
+                <div className={styles.campo}>
+                  <label htmlFor="inicio">Início</label>
+                  <input
+                    id="inicio"
+                    type="time"
+                    value={form.inicio}
+                    onChange={(e) => alterar('inicio', e.target.value)}
+                  />
+                </div>
+
+                <div className={styles.campo}>
+                  <label htmlFor="fim">Fim</label>
+                  <input
+                    id="fim"
+                    type="time"
+                    value={form.fim}
+                    onChange={(e) => alterar('fim', e.target.value)}
+                  />
+                  {viraNoite && form.data && (
+                    <small>
+                      Termina no dia seguinte ({diaSeguinteFormatado(form.data)}).
+                    </small>
+                  )}
+                </div>
+              </>
+            )}
 
             <div className={styles.campo}>
               <label htmlFor="codigo">Recurso disponível</label>
